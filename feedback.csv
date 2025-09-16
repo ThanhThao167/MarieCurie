@@ -1,0 +1,21 @@
+timestamp,session_id,question,answer,rating
+2025-08-03T22:14:16.415951,4eeb6b8a-8d69-43f1-b8c8-98cd0e95a2ee,Hiệu trưởng là ai?,"Hiện nay, từ năm học 2025-2026, Hiệu trưởng trường THPT Marie Curie là thầy Nguyễn Trần Khánh Bảo.",like
+2025-08-03T22:14:40.359265,4eeb6b8a-8d69-43f1-b8c8-98cd0e95a2ee,đồ ăn căn tin ngon chứ?,"Dựa theo nhiều chia sẻ của cựu học sinh Marie, đồ ăn trong căn tin rất ngon và được các bạn học sinh yêu thích.",unlike
+2025-08-03T22:14:43.809457,4eeb6b8a-8d69-43f1-b8c8-98cd0e95a2ee,đồ ăn căn tin ngon chứ?,"Dựa theo nhiều chia sẻ của cựu học sinh Marie, đồ ăn trong căn tin rất ngon và được các bạn học sinh yêu thích.",unlike
+2025-08-03T22:14:48.782086,4eeb6b8a-8d69-43f1-b8c8-98cd0e95a2ee,đồ ăn căn tin ngon chứ?,"Dựa theo nhiều chia sẻ của cựu học sinh Marie, đồ ăn trong căn tin rất ngon và được các bạn học sinh yêu thích.",unlike
+2025-08-03T22:15:10.238819,4eeb6b8a-8d69-43f1-b8c8-98cd0e95a2ee,big data là gì?,"Big Data (dữ liệu lớn) là khái niệm chỉ một khối lượng dữ liệu rất lớn, đa dạng và phức tạp, mà các phương pháp truyền thống không thể xử lý hiệu quả. Big Data thường được đặc trưng bởi ba yếu tố: 
+
+1. **Khối lượng (Volume)**: Khối lượng dữ liệu rất lớn, có thể lên đến hàng petabyte hoặc thậm chí nhiều hơn.
+2. **Tốc độ (Velocity)**: Dữ liệu được phát sinh và cập nhật với tốc độ nhanh chóng, cần có sự xử lý kịp thời.
+3. **Độ đa dạng (Variety)**: Dữ liệu đến từ nhiều nguồn và ở nhiều định dạng khác nhau, bao gồm văn bản, hình ảnh, video, v.v.
+
+Big Data thường được sử dụng trong các lĩnh vực như phân tích kinh doanh, y tế, nghiên cứu thị trường, và nhiều lĩnh vực khác để đưa ra quyết định dựa trên dữ liệu.",like
+2025-08-03T22:28:06.961469,e2e31b67-6652-4f06-aefb-b74ce74bd8d0,địa chỉ trường nằm ở đâu?,"159 Nam Kỳ Khởi Nghĩa, Phường Xuân Hòa, TP.HCM",like
+2025-08-03T23:08:25.896826,f2660c3e-7012-4673-95e7-e64575d6165f,địa chỉ của trường?,"159 Nam Kỳ Khởi Nghĩa, Phường Xuân Hòa, TP.HCM",like
+2025-08-03T23:08:27.840147,f2660c3e-7012-4673-95e7-e64575d6165f,địa chỉ của trường?,"159 Nam Kỳ Khởi Nghĩa, Phường Xuân Hòa, TP.HCM",unlike
+2025-08-03T23:08:29.310588,f2660c3e-7012-4673-95e7-e64575d6165f,địa chỉ của trường?,"159 Nam Kỳ Khởi Nghĩa, Phường Xuân Hòa, TP.HCM",like
+2025-08-04T09:01:09.594026,251ecd2c-5e45-4ad3-b2b6-0607528039e0,hôm nay là thứ mấy?,"Hôm nay là thứ 6, ngày 27 tháng 10 năm 2023.",unlike
+2025-08-04T09:24:07.233531,9ffc571d-066f-4b96-9335-02abc1796737,Where is the school address?,"159 Nam Ky Khoi Nghia, Xuan Hoa Ward, Ho Chi Minh City",like
+2025-08-06T10:20:01.916526,c2ef6778-2bbf-42bf-8b30-97a2ee913391,Trường có mấy nhóm môn học?,Trường có 7 nhóm môn học.,like
+2025-08-06T10:22:06.429220,c2ef6778-2bbf-42bf-8b30-97a2ee913391,Trường có nhiều cây xanh hay không?,"Trường có nhiều cây xanh, tạo không gian thoáng mát và dễ chịu cho học sinh. Các khu vực như sân trường và quanh các dãy lớp học đều được trồng nhiều loại cây và hoa, góp phần làm đẹp môi trường học tập.",unlike
+2025-08-25T08:46:16.063254,bc5ed57e-04ff-46e6-9fc2-1360613f44ab,Địa chỉ trường ở đâu?,"159 Nam Kỳ Khởi Nghĩa, Phường Xuân Hòa, TP.HCM",like

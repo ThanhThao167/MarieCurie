@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual env
+venv/
+.env/
+.env.*
+
+# Streamlit local secrets (nếu có)
+.streamlit/secrets.toml
+
+# VSCode/IDE
+.vscode/
+
+# (Tuỳ chọn) Ẩn log dữ liệu riêng tư
+chat_history.csv
+feedback.csv
+MC_chatbot.csv
