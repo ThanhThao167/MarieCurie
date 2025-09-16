@@ -117,7 +117,6 @@ with tab_user:
         with st.chat_message("assistant"):
             st.markdown(
                 "CHào bạn! mình là chatbot tuyển sinh 10, sẵn sàng giải đáp mọi thắc mắc của bạn. "
-                "Ngoài ra, hai tab chuyển người dùng và quản trị được đổ màu nền khi thay đổi vai trò. "
                 "Hãy đặt câu hỏi cho mình nhé!"
             )
 
