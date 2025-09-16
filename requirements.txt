@@ -1,12 +1,18 @@
+# Backend
 fastapi
 uvicorn
 openai
-pandas
-scikit-learn
-python-dotenv
-streamlit
+pydantic
+python-multipart
 requests
+pandas
+numpy
+scikit-learn
 deep-translator
 sentence-transformers
 faiss-cpu
-python-multipart
+torch
+
+# Frontend
+streamlit
+python-dotenv
