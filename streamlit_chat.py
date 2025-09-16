@@ -13,12 +13,12 @@ import streamlit as st
 # 0) Page config & CSS
 # =========================
 st.set_page_config(
-    page_title="Chatbot AI- trợ lí ảo hỗ trợ tư vấn tuyến sinh 10- THPT Marie Curie",
+    page_title="Chatbot AI- trợ lí ảo hỗ trợ tư vấn tuyển sinh 10- THPT Marie Curie",
     page_icon="🤖",
     layout="wide",
 )
 
-# Tabs + icon buttons + input styling
+# Tabs + buttons + input styling
 st.markdown(
     """
 <style>
@@ -33,15 +33,14 @@ div.stTabs [data-baseweb="tab-list"] button[role="tab"][aria-selected="true"] {
 }
 div.stTabs [data-baseweb="tab-list"] button p { font-size: 1rem; font-weight: 600; }
 
-/* Icon feedback: sát nhau, nhỏ gọn */
-.icon-row .stButton { display: inline-block; margin-right: .25rem; }
-.icon-row .stButton > button { padding: .25rem .5rem; min-width: 0; border-radius: 10px; }
-
 /* Chat input viền nổi bật nhẹ */
 .stChatInput textarea {
   border: 2px solid rgba(255,255,255,0.15) !important;
   border-radius: 12px !important;
 }
+
+/* Thu nhỏ padding nút feedback */
+.small-btn > button { padding: .25rem .5rem; min-width: 0; border-radius: 10px; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -111,7 +110,7 @@ tab_user, tab_admin = st.tabs(["👨‍🎓 Người dùng", "🛠 Quản trị"
 # 4) Tab Người dùng (Chat)
 # =========================
 with tab_user:
-    st.title("🤖 Chatbot AI- trợ lí ảo hỗ trợ tư vấn tuyến sinh 10- THPT Marie Curie")
+    st.title("🤖 Chatbot AI- trợ lí ảo hỗ trợ tư vấn tuyển sinh 10- THPT Marie Curie")
 
     # Lời chào đầu tiên
     if len(st.session_state.messages) == 0:
@@ -122,66 +121,71 @@ with tab_user:
                 "Hãy đặt câu hỏi cho mình nhé!"
             )
 
-    # Render lịch sử chat
-    for msg in st.session_state.messages:
+    # ---- hiển thị toàn bộ lịch sử trước ----
+    for i, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+        # hiện 2 nút feedback chỉ cho **tin nhắn trợ lí cuối cùng**
+        is_last_assistant = (
+            msg["role"] == "assistant" and i == len(st.session_state.messages) - 1
+        )
+        if is_last_assistant:
+            # tìm câu hỏi liền trước (nếu có)
+            prev_q = ""
+            if i >= 1 and st.session_state.messages[i-1]["role"] == "user":
+                prev_q = st.session_state.messages[i-1]["content"]
 
-    # Ô nhập
+            # đặt hai nút cùng một hàng, sát nhau
+            c1, c2, _ = st.columns([0.07, 0.07, 0.86])
+            with c1:
+                if st.button("👍", key=f"fb_up_{i}", help="Hài lòng", type="secondary", kwargs=None):
+                    with suppress(Exception):
+                        post_form("/feedback", {
+                            "session_id": st.session_state.session_id,
+                            "question": prev_q,
+                            "answer": msg["content"],
+                            "rating": "up",
+                        })
+                        st.success("Đã gửi phản hồi 👍")
+            with c2:
+                if st.button("👎", key=f"fb_dn_{i}", help="Chưa tốt", type="secondary"):
+                    with suppress(Exception):
+                        post_form("/feedback", {
+                            "session_id": st.session_state.session_id,
+                            "question": prev_q,
+                            "answer": msg["content"],
+                            "rating": "down",
+                        })
+                        st.success("Đã gửi phản hồi 👎")
+
+    # ---- ô nhập luôn ở cuối trang ----
     user_input = st.chat_input("Nhập câu hỏi của bạn...")
 
     if user_input:
-        # Hiển thị ngay câu hỏi user
+        # cập nhật state nhưng KHÔNG render ngay tại đây
         st.session_state.messages.append({"role": "user", "content": user_input})
-        with st.chat_message("user"):
-            st.markdown(user_input)
 
-        # Gọi backend
         try:
             data = post_json(
                 "/chat",
                 {"messages": st.session_state.messages, "session_id": st.session_state.session_id},
             )
             reply = (data or {}).get("reply") or (data or {}).get("response") or "Xin lỗi, hiện chưa có phản hồi."
-
             st.session_state.messages.append({"role": "assistant", "content": reply})
             st.session_state.last_reply = reply
-
-            with st.chat_message("assistant"):
-                st.markdown(reply)
-
-                # Nút feedback icon-only, đặt sát nhau
-                st.markdown('<div class="icon-row">', unsafe_allow_html=True)
-                if st.button("👍", key=f"fb_up_{len(st.session_state.messages)}", help="Hài lòng"):
-                    with suppress(Exception):
-                        post_form(
-                            "/feedback",
-                            {
-                                "session_id": st.session_state.session_id,
-                                "question": user_input,
-                                "answer": reply,
-                                "rating": "up",
-                            },
-                        )
-                        st.success("Đã gửi phản hồi 👍")
-                if st.button("👎", key=f"fb_dn_{len(st.session_state.messages)}", help="Chưa tốt"):
-                    with suppress(Exception):
-                        post_form(
-                            "/feedback",
-                            {
-                                "session_id": st.session_state.session_id,
-                                "question": user_input,
-                                "answer": reply,
-                                "rating": "down",
-                            },
-                        )
-                        st.success("Đã gửi phản hồi 👎")
-                st.markdown("</div>", unsafe_allow_html=True)
-
         except requests.RequestException as e:
-            with st.chat_message("assistant"):
-                st.error("Không thể kết nối tới backend. Kiểm tra `BACKEND_URL` trong Secrets hoặc thử lại sau.")
-                st.code(str(e))
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": "Không thể kết nối tới backend. Kiểm tra `BACKEND_URL` trong Secrets hoặc thử lại sau.\n\n"
+                           f"Chi tiết lỗi: `{e}`"
+            })
+
+        # rerender để tất cả tin nhắn hiển thị **phía trên**,
+        # còn ô nhập vẫn nằm **cuối cùng**
+        try:
+            st.rerun()  # Streamlit >=1.30
+        except Exception:
+            st.experimental_rerun()
 
     # Ẩn debug trừ khi SHOW_DEBUG=1
     if os.getenv("SHOW_DEBUG") == "1":
@@ -285,7 +289,6 @@ with tab_admin:
         for col in ["question", "user_input", "prompt", "text", "content"]:
             if col in df.columns:
                 s = df[col].dropna().astype(str)
-                # Nếu đây là toàn bộ lịch sử (cả user và assistant), lọc những dòng có vẻ là câu hỏi user
                 if "role" in df.columns:
                     try:
                         s = df.loc[df["role"].astype(str).str.lower().eq("user"), col].dropna().astype(str)
@@ -293,7 +296,6 @@ with tab_admin:
                         pass
                 return s if len(s) else None
 
-        # Nếu có cột role/content
         if {"role", "content"}.issubset(set(df.columns)):
             s = df.loc[df["role"].astype(str).str.lower().eq("user"), "content"].dropna().astype(str)
             return s if len(s) else None
@@ -304,7 +306,6 @@ with tab_admin:
     if s_questions is None or len(s_questions) == 0:
         st.info("Chưa có dữ liệu câu hỏi để thống kê (cần `/history` JSON hoặc `/chat_history.csv`).")
     else:
-        # Chuẩn hoá nhẹ để gộp biến thể giống nhau
         s_norm = (
             s_questions.astype(str)
             .str.strip()
@@ -313,7 +314,6 @@ with tab_admin:
         )
         top_counts = s_norm.value_counts().head(10)
 
-        # Khôi phục dạng câu hỏi đại diện (lấy bản gốc đầu tiên)
         rep_map = {}
         for orig in s_questions:
             key = str(orig).strip().lower().replace("\n", " ")
@@ -321,17 +321,11 @@ with tab_admin:
             if key not in rep_map:
                 rep_map[key] = str(orig).strip()
 
-        rows = []
-        for key, cnt in top_counts.items():
-            rep = rep_map.get(key, key)
-            rows.append({"Câu hỏi": rep, "Số lần": int(cnt)})
-
+        rows = [{"Câu hỏi": rep_map.get(k, k), "Số lần": int(v)} for k, v in top_counts.items()]
         df_top = pd.DataFrame(rows)
 
         st.dataframe(df_top, use_container_width=True, hide_index=True)
-        # Biểu đồ cột
-        chart_df = df_top.set_index("Câu hỏi")["Số lần"]
-        st.bar_chart(chart_df)
+        st.bar_chart(df_top.set_index("Câu hỏi")["Số lần"])
 
     st.divider()
 
