@@ -1,5 +1,6 @@
 # streamlit_chat.py
 # Chatbot tuyển sinh 10 – Streamlit (UI chuẩn: câu hỏi mới ở cuối + thinking)
+# Bản tương thích Streamlit/Python cũ (fallback rerun & type hints).
 
 import os
 import uuid
@@ -7,6 +8,7 @@ import requests
 import pandas as pd
 from datetime import datetime
 from contextlib import suppress
+from typing import Optional
 import streamlit as st
 
 # ---------------- Page setup & CSS ----------------
@@ -31,20 +33,34 @@ div.stTabs [data-baseweb="tab-list"] button p{font-size:1rem;font-weight:600}
 </style>
 """, unsafe_allow_html=True)
 
+# ---------------- Utils ----------------
+def do_rerun() -> None:
+    """Rerun an toàn cho mọi phiên bản Streamlit."""
+    try:
+        st.rerun()  # Streamlit >= 1.30
+    except Exception:
+        try:
+            st.experimental_rerun()  # bản cũ
+        except Exception:
+            pass  # cùng lắm không rerun, UI vẫn hoạt động
+
 # ---------------- Config ----------------
 BACKEND_URL = os.getenv("BACKEND_URL") or st.secrets.get("BACKEND_URL", "http://localhost:8000")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD") or st.secrets.get("ADMIN_PASSWORD", "admin123")
 DEFAULT_TIMEOUT = 60
 
 def _join(p:str)->str: return f"{BACKEND_URL.rstrip('/')}/{p.lstrip('/')}"
+
 def post_json(p:str, payload:dict):
     r=requests.post(_join(p), json=payload, timeout=DEFAULT_TIMEOUT); r.raise_for_status()
     try: return r.json()
     except: return {"text": r.text}
+
 def post_form(p:str, form:dict):
     r=requests.post(_join(p), data=form, timeout=DEFAULT_TIMEOUT); r.raise_for_status()
     try: return r.json()
     except: return {"text": r.text}
+
 def get_json(p:str):
     try:
         r=requests.get(_join(p), timeout=DEFAULT_TIMEOUT)
@@ -54,6 +70,7 @@ def get_json(p:str):
         except: return {"text": r.text}
     except requests.RequestException:
         return None
+
 def get_csv_as_df(p:str):
     try: return pd.read_csv(_join(p))
     except: return None
@@ -121,7 +138,7 @@ with tab_user:
     if user_input:
         st.session_state.messages.append({"role":"user","content": user_input})
         st.session_state.awaiting_response = True
-        st.rerun()
+        do_rerun()
 
     # bước 2: nếu đang chờ -> gọi backend, thêm câu trả lời rồi rerun để hiển thị ở cuối
     if st.session_state.awaiting_response:
@@ -136,7 +153,7 @@ with tab_user:
         st.session_state.messages.append({"role":"assistant","content": reply})
         st.session_state.last_reply = reply
         st.session_state.awaiting_response = False
-        st.rerun()
+        do_rerun()
 
     if os.getenv("SHOW_DEBUG") == "1":
         st.caption(f"Phiên: `{st.session_state.session_id}` • Backend: `{BACKEND_URL}` • Thời gian: {datetime.now():%Y-%m-%d %H:%M:%S}")
@@ -165,28 +182,36 @@ with tab_admin:
     tabs_hist = st.tabs(["/history (JSON)", "/chat_history.csv (CSV)"])
     with tabs_hist[0]:
         hist = get_json("/history")
-        if isinstance(hist, list) and hist: st.dataframe(pd.DataFrame(hist), use_container_width=True)
-        else: st.info("Không có endpoint `/history` hoặc không truy cập được.")
+        if isinstance(hist, list) and hist:
+            st.dataframe(pd.DataFrame(hist), use_container_width=True)
+        else:
+            st.info("Không có endpoint `/history` hoặc không truy cập được.")
     with tabs_hist[1]:
         df_hist = get_csv_as_df("/chat_history.csv")
-        if df_hist is not None: st.dataframe(df_hist, use_container_width=True)
-        else: st.info("Không tìm thấy `/chat_history.csv`.")
+        if df_hist is not None:
+            st.dataframe(df_hist, use_container_width=True)
+        else:
+            st.info("Không tìm thấy `/chat_history.csv`.")
 
     st.divider()
     st.subheader("📝 Feedback")
     tabs_fb = st.tabs(["/feedbacks (JSON)", "/feedback.csv (CSV)"])
     with tabs_fb[0]:
         fjson = get_json("/feedbacks")
-        if isinstance(fjson, list) and fjson: st.dataframe(pd.DataFrame(fjson), use_container_width=True)
-        else: st.info("Không có endpoint `/feedbacks` hoặc không truy cập được.")
+        if isinstance(fjson, list) and fjson:
+            st.dataframe(pd.DataFrame(fjson), use_container_width=True)
+        else:
+            st.info("Không có endpoint `/feedbacks` hoặc không truy cập được.")
     with tabs_fb[1]:
         df_fb = get_csv_as_df("/feedback.csv")
-        if df_fb is not None: st.dataframe(df_fb, use_container_width=True)
-        else: st.info("Không tìm thấy `/feedback.csv`.")
+        if df_fb is not None:
+            st.dataframe(df_fb, use_container_width=True)
+        else:
+            st.info("Không tìm thấy `/feedback.csv`.")
 
     st.divider()
     st.subheader("📈 Top 10 câu hỏi được hỏi nhiều nhất")
-    def _load_questions_series()->pd.Series|None:
+    def _load_questions_series() -> Optional[pd.Series]:
         data = get_json("/history")
         df = pd.DataFrame(data) if isinstance(data, list) and data else get_csv_as_df("/chat_history.csv")
         if df is None or df.empty: return None
@@ -212,7 +237,7 @@ with tab_admin:
             k=" ".join(str(t).strip().lower().split())
             if k not in rep: rep[k]=str(t).strip()
         df_top = pd.DataFrame({"Câu hỏi":[rep.get(k,k) for k in counts.index], "Số lần":counts.values})
-        st.dataframe(df_top, use_container_width=True, hide_index=True)
+        st.dataframe(df_top, use_container_width=True)
         st.bar_chart(df_top.set_index("Câu hỏi")["Số lần"])
 
     st.divider()
