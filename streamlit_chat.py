@@ -1,5 +1,5 @@
 # streamlit_chat.py
-# Frontend Streamlit cho Chatbot tuyển sinh 10 (Cloud-ready)
+# Frontend Streamlit cho Chatbot tuyển sinh 10 (Cloud-ready) + "thinking" placeholder
 
 import os
 import uuid
@@ -39,7 +39,7 @@ div.stTabs [data-baseweb="tab-list"] button p { font-size: 1rem; font-weight: 60
   border-radius: 12px !important;
 }
 
-/* Thu nhỏ padding nút feedback */
+/* Nút feedback gọn, cùng hàng */
 .small-btn > button { padding: .25rem .5rem; min-width: 0; border-radius: 10px; }
 </style>
 """,
@@ -120,71 +120,70 @@ with tab_user:
                 "Hãy đặt câu hỏi cho mình nhé!"
             )
 
-    # ---- hiển thị toàn bộ lịch sử trước ----
-    for i, msg in enumerate(st.session_state.messages):
+    # Hiển thị lịch sử cũ
+    for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-        # hiện 2 nút feedback chỉ cho **tin nhắn trợ lí cuối cùng**
-        is_last_assistant = (
-            msg["role"] == "assistant" and i == len(st.session_state.messages) - 1
-        )
-        if is_last_assistant:
-            # tìm câu hỏi liền trước (nếu có)
-            prev_q = ""
-            if i >= 1 and st.session_state.messages[i-1]["role"] == "user":
-                prev_q = st.session_state.messages[i-1]["content"]
 
-            # đặt hai nút cùng một hàng, sát nhau
+    # Ô nhập luôn ở cuối
+    user_input = st.chat_input("Nhập câu hỏi của bạn...")
+
+    if user_input:
+        # 1) In ngay câu hỏi của người dùng
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
+
+        # 2) Tạo bong bóng assistant với trạng thái "đang suy nghĩ..."
+        with st.chat_message("assistant"):
+            placeholder = st.empty()                 # vùng để thay thế nội dung
+            placeholder.markdown("⏳ *Đang suy nghĩ…*")
+
+            # 3) Gọi backend trong spinner; khi có kết quả -> thay thế vào placeholder
+            try:
+                with st.spinner("Đang tổng hợp câu trả lời…"):
+                    data = post_json(
+                        "/chat",
+                        {
+                            "messages": st.session_state.messages,
+                            "session_id": st.session_state.session_id,
+                        },
+                    )
+                reply = (data or {}).get("reply") or (data or {}).get("response") or "Xin lỗi, hiện chưa có phản hồi."
+            except requests.RequestException as e:
+                reply = (
+                    "Không thể kết nối tới backend. Kiểm tra `BACKEND_URL` trong Secrets hoặc thử lại sau.\n\n"
+                    f"Chi tiết lỗi: `{e}`"
+                )
+
+            # 4) Thay thế nội dung thinking bằng câu trả lời thật
+            placeholder.markdown(reply)
+            st.session_state.messages.append({"role": "assistant", "content": reply})
+            st.session_state.last_reply = reply
+
+            # 5) Hai nút feedback cùng một hàng, sát nhau
+            prev_q = user_input
             c1, c2, _ = st.columns([0.07, 0.07, 0.86])
             with c1:
-                if st.button("👍", key=f"fb_up_{i}", help="Hài lòng", type="secondary", kwargs=None):
+                if st.button("👍", key=f"fb_up_{len(st.session_state.messages)}", help="Hài lòng"):
                     with suppress(Exception):
                         post_form("/feedback", {
                             "session_id": st.session_state.session_id,
                             "question": prev_q,
-                            "answer": msg["content"],
+                            "answer": reply,
                             "rating": "up",
                         })
                         st.success("Đã gửi phản hồi 👍")
             with c2:
-                if st.button("👎", key=f"fb_dn_{i}", help="Chưa tốt", type="secondary"):
+                if st.button("👎", key=f"fb_dn_{len(st.session_state.messages)}", help="Chưa tốt"):
                     with suppress(Exception):
                         post_form("/feedback", {
                             "session_id": st.session_state.session_id,
                             "question": prev_q,
-                            "answer": msg["content"],
+                            "answer": reply,
                             "rating": "down",
                         })
                         st.success("Đã gửi phản hồi 👎")
-
-    # ---- ô nhập luôn ở cuối trang ----
-    user_input = st.chat_input("Nhập câu hỏi của bạn...")
-
-    if user_input:
-        # cập nhật state nhưng KHÔNG render ngay tại đây
-        st.session_state.messages.append({"role": "user", "content": user_input})
-
-        try:
-            data = post_json(
-                "/chat",
-                {"messages": st.session_state.messages, "session_id": st.session_state.session_id},
-            )
-            reply = (data or {}).get("reply") or (data or {}).get("response") or "Xin lỗi, hiện chưa có phản hồi."
-            st.session_state.messages.append({"role": "assistant", "content": reply})
-            st.session_state.last_reply = reply
-        except requests.RequestException as e:
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": "Không thể kết nối tới backend. Kiểm tra `BACKEND_URL` trong Secrets hoặc thử lại sau.\n\n"
-                           f"Chi tiết lỗi: `{e}`"
-            })
-
-        # rerender để tất cả tin nhắn hiển thị **phía trên**,
-        # còn ô nhập vẫn nằm **cuối cùng**
-        try:
-            st.rerun()  # Streamlit >=1.30
-        except Exception:
-            st.experimental_rerun()
 
     # Ẩn debug trừ khi SHOW_DEBUG=1
     if os.getenv("SHOW_DEBUG") == "1":
