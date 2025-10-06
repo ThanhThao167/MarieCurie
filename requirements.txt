@@ -1,18 +1,23 @@
-# Backend
-fastapi
-uvicorn
-openai
-pydantic
-python-multipart
-requests
-pandas
-numpy
-scikit-learn
-deep-translator
-sentence-transformers
-faiss-cpu
-torch
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# API
+fastapi==0.115.0
+uvicorn==0.30.6
+pydantic==2.9.1
+python-multipart==0.0.9
+requests==2.32.3
 
 # Frontend
-streamlit
-python-dotenv
+streamlit==1.37.0
+python-dotenv==1.0.1
+
+# Data/ML
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.4.2
+deep-translator==1.11.4
+
+# RAG/Embeddings
+faiss-cpu==1.7.4
+torch==2.4.0
+sentence-transformers==2.7.0
