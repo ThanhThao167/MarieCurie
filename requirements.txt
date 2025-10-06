@@ -1,4 +1,6 @@
-# API
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# API (giữ nếu thật sự dùng FastAPI; nếu không dùng thì bỏ 4 dòng đầu)
 fastapi==0.115.0
 uvicorn==0.30.6
 pydantic==2.9.1
