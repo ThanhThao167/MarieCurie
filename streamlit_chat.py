@@ -1,7 +1,3 @@
-# streamlit_chat.py
-# Chatbot tuyển sinh 10 – Streamlit (UI chuẩn: câu hỏi mới ở cuối + thinking)
-# Bản tương thích Streamlit/Python cũ (fallback rerun & type hints).
-
 import os
 import uuid
 import requests
