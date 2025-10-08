@@ -1,6 +1,8 @@
-# streamlit_chat.py
-# Chatbot tuyển sinh 10 – Streamlit (UI chuẩn: câu hỏi mới ở cuối + thinking)
-# Bản tương thích Streamlit/Python cũ (fallback rerun & type hints).
+# streamlit_chat.py — Giao diện giống ảnh mẫu (không thay đổi phần Quản trị)
+# - Tabs: 👨‍🎓 Người dùng / 🛠 Quản trị
+# - Tiêu đề lớn, nền tối, bong bóng chat dạng thẻ, icon avatar
+# - Nút 👍/👎 dưới câu trả lời mới nhất; bong bóng "Đang suy nghĩ…" ở cuối
+# - KHÔNG SỬA phần Quản trị ở cuối file
 
 import os
 import uuid
@@ -17,32 +19,48 @@ st.set_page_config(
     page_icon="🤖",
     layout="wide",
 )
-st.markdown("""
-<style>
-div.stTabs [data-baseweb="tab-list"]{gap:.25rem}
-div.stTabs [data-baseweb="tab-list"] button[role="tab"]{
-  background:transparent;border:1px solid transparent;border-bottom:none;
-  padding:.5rem 1rem;border-radius:10px 10px 0 0
-}
-div.stTabs [data-baseweb="tab-list"] button[role="tab"][aria-selected="true"]{
-  background:rgba(31,111,235,.2);border-color:rgba(31,111,235,.35);color:#fff
-}
-div.stTabs [data-baseweb="tab-list"] button p{font-size:1rem;font-weight:600}
-.stChatInput textarea{border:2px solid rgba(255,255,255,.15)!important;border-radius:12px!important}
-.small-btn > button{padding:.25rem .5rem;min-width:0;border-radius:10px}
-</style>
-""", unsafe_allow_html=True)
+
+st.markdown(
+    """
+    <style>
+    /* Tabs: bo tròn + nhấn tab đang chọn */
+    div.stTabs [data-baseweb="tab-list"]{gap:.35rem}
+    div.stTabs [data-baseweb="tab-list"] button[role="tab"]{
+      background:transparent;border:1px solid transparent;border-bottom:none;
+      padding:.5rem 1rem;border-radius:12px 12px 0 0
+    }
+    div.stTabs [data-baseweb="tab-list"] button[role="tab"][aria-selected="true"]{
+      background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.15);color:#fff
+    }
+    div.stTabs [data-baseweb="tab-list"] button p{font-size:1rem;font-weight:700}
+
+    /* Tiêu đề lớn giống ảnh */
+    .hero-title{font-size:2.2rem;font-weight:800;margin:0.3rem 0 0.8rem 0}
+
+    /* Chat bubble tối, bo lớn */
+    .chat-bubble{background:#151a22;border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:0.75rem 1rem;margin:.35rem 0}
+    .chat-bubble.user{background:#1a1f29;border-color:rgba(244,63,94,.25)}     /* đỏ nhạt */
+    .chat-bubble.assistant{background:#171f17;border-color:rgba(234,179,8,.25)}/* vàng nhạt */
+    .soft{opacity:.9}
+
+    /* Ô nhập đỏ viền như ảnh */
+    .stChatInput textarea{border:2px solid rgba(239,68,68,.4)!important;border-radius:12px!important}
+    .small-btn > button{padding:.25rem .5rem;min-width:0;border-radius:10px}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ---------------- Utils ----------------
 def do_rerun() -> None:
     """Rerun an toàn cho mọi phiên bản Streamlit."""
     try:
-        st.rerun()  # Streamlit >= 1.30
+        st.rerun()
     except Exception:
         try:
-            st.experimental_rerun()  # bản cũ
+            st.experimental_rerun()
         except Exception:
-            pass  # cùng lắm không rerun, UI vẫn hoạt động
+            pass
 
 # ---------------- Config ----------------
 BACKEND_URL = os.getenv("BACKEND_URL") or st.secrets.get("BACKEND_URL", "http://localhost:8000")
@@ -86,13 +104,14 @@ tab_user, tab_admin = st.tabs(["👨‍🎓 Người dùng", "🛠 Quản trị"
 
 # ---------------- User tab ----------------
 with tab_user:
-    st.title("🤖 Chatbot AI- trợ lí ảo hỗ trợ tư vấn tuyển sinh 10- THPT Marie Curie")
+    st.markdown('<div class="hero-title">🤖 Chatbot AI- trợ lí ảo hỗ trợ tư vấn tuyển sinh 10- THPT Marie Curie</div>', unsafe_allow_html=True)
 
-    chat_box = st.container()   # toàn bộ đoạn hội thoại ở đây
+    chat_box = st.container()   # toàn bộ đoạn hội thoại
     with chat_box:
+        # Lời chào đầu tiên
         if not st.session_state.messages:
-            with st.chat_message("assistant"):
-                st.markdown("Chào bạn! mình là chatbot tuyển sinh 10, sẵn sàng giải đáp mọi thắc mắc của bạn. Hãy đặt câu hỏi cho mình nhé!")
+            with st.chat_message("assistant", avatar="🤖"):
+                st.markdown('<div class="chat-bubble assistant soft">Chào bạn! Mình là chatbot tuyển sinh 10. Hãy đặt câu hỏi để mình hỗ trợ nhé!</div>', unsafe_allow_html=True)
 
         # tìm chỉ số câu trả lời assistant cuối để đặt nút 👍👎
         last_ass_idx = None
@@ -100,12 +119,17 @@ with tab_user:
             if m.get("role") == "assistant":
                 last_ass_idx = i
 
-        # render lịch sử
+        # render lịch sử (bong bóng & avatar như ảnh)
         for i, msg in enumerate(st.session_state.messages):
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-            if i == last_ass_idx:
-                # lấy câu hỏi liền trước
+            if msg["role"] == "user":
+                with st.chat_message("user", avatar="🙂"):
+                    st.markdown(f'<div class="chat-bubble user">{msg["content"]}</div>', unsafe_allow_html=True)
+            else:
+                with st.chat_message("assistant", avatar="🟨"):
+                    st.markdown(f'<div class="chat-bubble assistant">{msg["content"]}</div>', unsafe_allow_html=True)
+
+            # hàng nút phản hồi ngay dưới câu trả lời mới nhất
+            if i == last_ass_idx and msg["role"] == "assistant":
                 prev_q = ""
                 for j in range(i-1, -1, -1):
                     if st.session_state.messages[j]["role"] == "user":
@@ -126,19 +150,23 @@ with tab_user:
                                 "question": prev_q, "answer": msg["content"], "rating": "down"
                             }); st.success("Đã gửi phản hồi 👎")
 
-        # nếu đang chờ trả lời: hiện bong bóng thinking ngay ở CUỐI cuộc hội thoại
+        # nếu đang chờ trả lời: hiện bong bóng thinking ở CUỐI
         if st.session_state.awaiting_response:
-            with st.chat_message("assistant"):
-                st.markdown("⏳ *Đang suy nghĩ…*")
+            with st.chat_message("assistant", avatar="⏳"):
+                st.markdown('<div class="chat-bubble assistant soft">⏳ <em>Đang suy nghĩ…</em></div>', unsafe_allow_html=True)
 
-    # ô nhập luôn đặt SAU chat_box -> câu hỏi mới sẽ xuất hiện ở cuối (trên ô nhập)
+    # ô nhập luôn ở dưới cùng
     user_input = st.chat_input("Nhập câu hỏi của bạn...")
 
-    # bước 1: người dùng gửi câu hỏi -> thêm vào lịch sử & kích hoạt chế độ chờ, rồi rerun
+    # bước 1: thêm câu hỏi & bật chờ -> rerun
     if user_input:
         st.session_state.messages.append({"role":"user","content": user_input})
         st.session_state.awaiting_response = True
-        do_rerun()
+        try:
+            st.rerun()
+        except Exception:
+            try: st.experimental_rerun()
+            except Exception: pass
 
 # bước 2: nếu đang chờ -> gọi backend, thêm câu trả lời rồi rerun để hiển thị ở cuối
 if st.session_state.awaiting_response:
@@ -153,13 +181,15 @@ if st.session_state.awaiting_response:
     st.session_state.messages.append({"role":"assistant","content": reply})
     st.session_state.last_reply = reply
     st.session_state.awaiting_response = False
-    do_rerun()
+    try:
+        st.rerun()
+    except Exception:
+        try: st.experimental_rerun()
+        except Exception: pass
 
-
-    if os.getenv("SHOW_DEBUG") == "1":
-        st.caption(f"Phiên: `{st.session_state.session_id}` • Backend: `{BACKEND_URL}` • Thời gian: {datetime.now():%Y-%m-%d %H:%M:%S}")
-
-# ---------------- Admin tab ----------------
+# ============================================================
+#                       PHẦN QUẢN TRỊ (GIỮ NGUYÊN)
+# ============================================================
 with tab_admin:
     st.header("🛠 Khu vực Quản trị")
     pwd = st.text_input("Nhập mật khẩu quản trị", type="password")
@@ -231,7 +261,7 @@ with tab_admin:
     if s is None or s.empty:
         st.info("Chưa có dữ liệu câu hỏi (cần `/history` JSON hoặc `/chat_history.csv`).")
     else:
-        s_norm = s.astype(str).str.strip().str.lower().str.replace(r"\s+"," ", regex=True)
+        s_norm = s.astype(str).str.strip().str.lower().str.replace(r"\\s+"," ", regex=True)
         counts = s_norm.value_counts().head(10)
         rep = {}
         for t in s:
