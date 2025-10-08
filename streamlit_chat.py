@@ -125,7 +125,7 @@ with tab_user:
                 with st.chat_message("user", avatar="🙂"):
                     st.markdown(f'<div class="chat-bubble user">{msg["content"]}</div>', unsafe_allow_html=True)
             else:
-                with st.chat_message("assistant", avatar="🟨"):
+                with st.chat_message("assistant", avatar="🤖"):
                     st.markdown(f'<div class="chat-bubble assistant">{msg["content"]}</div>', unsafe_allow_html=True)
 
             # hàng nút phản hồi ngay dưới câu trả lời mới nhất
