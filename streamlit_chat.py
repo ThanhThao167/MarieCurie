@@ -80,6 +80,10 @@ if "session_id" not in st.session_state: st.session_state.session_id=str(uuid.uu
 if "messages"   not in st.session_state: st.session_state.messages=[]
 if "last_reply" not in st.session_state: st.session_state.last_reply=""
 if "awaiting_response" not in st.session_state: st.session_state.awaiting_response=False
+# thêm biến lưu câu hỏi cho Pha 2
+if "last_user_text" not in st.session_state: st.session_state.last_user_text=None
+# flag chào
+if "greeted" not in st.session_state: st.session_state.greeted=False
 
 # ---------------- Tabs ----------------
 tab_user, tab_admin = st.tabs(["👨‍🎓 Người dùng", "🛠 Quản trị"])
@@ -90,9 +94,11 @@ with tab_user:
 
     chat_box = st.container()   # toàn bộ đoạn hội thoại ở đây
     with chat_box:
-        if not st.session_state.messages:
+        # lời chào 1 lần
+        if not st.session_state.messages and not st.session_state.greeted:
             with st.chat_message("assistant"):
                 st.markdown("Chào bạn! mình là chatbot tuyển sinh 10, sẵn sàng giải đáp mọi thắc mắc của bạn. Hãy đặt câu hỏi cho mình nhé!")
+            st.session_state.greeted=True
 
         # tìm chỉ số câu trả lời assistant cuối để đặt nút 👍👎
         last_ass_idx = None
@@ -126,38 +132,44 @@ with tab_user:
                                 "question": prev_q, "answer": msg["content"], "rating": "down"
                             }); st.success("Đã gửi phản hồi 👎")
 
-        # nếu đang chờ trả lời: hiện bong bóng thinking ngay ở CUỐI cuộc hội thoại
-        if st.session_state.awaiting_response:
+        # ========== PHA 1 ==========
+        # ô nhập luôn đặt SAU chat_box -> câu hỏi mới sẽ xuất hiện ở cuối (trên ô nhập)
+        user_input = st.chat_input("Nhập câu hỏi của bạn...")
+
+        # Khi người dùng gửi: thêm câu hỏi, bật cờ chờ và rerun để HIỂN THỊ NGAY câu hỏi
+        if user_input:
+            st.session_state.messages.append({"role":"user","content": user_input})
+            st.session_state.last_user_text = user_input
+            st.session_state.awaiting_response = True
+            do_rerun()
+
+        # ========== PHA 2 ==========
+        # Sau khi rerun, hiển thị "đang suy nghĩ…" và gọi backend NGAY TRONG TAB
+        if st.session_state.awaiting_response and st.session_state.last_user_text:
             with st.chat_message("assistant"):
-                st.markdown("⏳ *Đang suy nghĩ…*")
+                # status nếu phiên bản hỗ trợ, fallback spinner nếu không
+                if hasattr(st, "status"):
+                    ctx = st.status("🤔 Đang suy nghĩ…", state="running")
+                else:
+                    ctx = st.spinner("🤔 Đang suy nghĩ…")
+                with ctx:
+                    try:
+                        data = post_json("/chat", {
+                            "messages": st.session_state.messages,
+                            "session_id": st.session_state.session_id
+                        })
+                        reply = (data or {}).get("answer") or (data or {}).get("reply") \
+                                or (data or {}).get("response") or "Xin lỗi, hiện chưa có phản hồi."
+                    except requests.RequestException as e:
+                        reply = "Không thể kết nối tới backend. Kiểm tra BACKEND_URL trong Secrets hoặc thử lại sau.\n\n" + f"Chi tiết lỗi: `{e}`"
+                # thay bubble thinking bằng câu trả lời
+                st.markdown(reply)
 
-    # ô nhập luôn đặt SAU chat_box -> câu hỏi mới sẽ xuất hiện ở cuối (trên ô nhập)
-    user_input = st.chat_input("Nhập câu hỏi của bạn...")
-
-    # bước 1: người dùng gửi câu hỏi -> thêm vào lịch sử & kích hoạt chế độ chờ, rồi rerun
-    if user_input:
-        st.session_state.messages.append({"role":"user","content": user_input})
-        st.session_state.awaiting_response = True
-        do_rerun()
-
-# bước 2: nếu đang chờ -> gọi backend, thêm câu trả lời rồi rerun để hiển thị ở cuối
-if st.session_state.awaiting_response:
-    try:
-        data = post_json("/chat", {
-            "messages": st.session_state.messages,
-            "session_id": st.session_state.session_id
-        })
-        reply = (data or {}).get("reply") or (data or {}).get("response") or "Xin lỗi, hiện chưa có phản hồi."
-    except requests.RequestException as e:
-        reply = "Không thể kết nối tới backend. Kiểm tra BACKEND_URL trong Secrets hoặc thử lại sau.\n\n" + f"Chi tiết lỗi: `{e}`"
-    st.session_state.messages.append({"role":"assistant","content": reply})
-    st.session_state.last_reply = reply
-    st.session_state.awaiting_response = False
-    do_rerun()
-
-
-    if os.getenv("SHOW_DEBUG") == "1":
-        st.caption(f"Phiên: `{st.session_state.session_id}` • Backend: `{BACKEND_URL}` • Thời gian: {datetime.now():%Y-%m-%d %H:%M:%S}")
+            # lưu & kết thúc trạng thái chờ (KHÔNG rerun thêm lần nữa)
+            st.session_state.messages.append({"role":"assistant","content": reply})
+            st.session_state.last_reply = reply
+            st.session_state.awaiting_response = False
+            st.session_state.last_user_text = None
 
 # ---------------- Admin tab ----------------
 with tab_admin:
