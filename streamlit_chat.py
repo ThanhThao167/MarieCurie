@@ -92,7 +92,7 @@ with tab_user:
     with chat_box:
         if not st.session_state.messages:
             with st.chat_message("assistant"):
-                st.markdown("CHào bạn! mình là chatbot tuyển sinh 10, sẵn sàng giải đáp mọi thắc mắc của bạn. Hãy đặt câu hỏi cho mình nhé!")
+                st.markdown("Chào bạn! mình là chatbot tuyển sinh 10, sẵn sàng giải đáp mọi thắc mắc của bạn. Hãy đặt câu hỏi cho mình nhé!")
 
         # tìm chỉ số câu trả lời assistant cuối để đặt nút 👍👎
         last_ass_idx = None
