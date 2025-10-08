@@ -1,6 +1,6 @@
 # streamlit_chat.py
 # Chatbot tuyển sinh 10 – Streamlit (UI chuẩn: câu hỏi mới ở cuối + thinking)
-# Bản tương thích Streamlit/Python cũ (fallback rerun).
+# Tương thích Streamlit/Python cũ (fallback rerun).
 
 import os
 import uuid
@@ -164,41 +164,69 @@ with tab_user:
                             )
                         st.success("Đã gửi phản hồi 👎")
 
-    # 2) PHA 2: nếu đang chờ → hiển thị THINKING (ở TRÊN) rồi gọi backend
+    # 2) PHA 2: nếu đang chờ → hiển thị THINKING rồi thay bằng câu trả lời
     if st.session_state.awaiting_response and st.session_state.last_user_text:
         with st.chat_message("assistant"):
-            # Dùng placeholder để thay “thinking” bằng câu trả lời trong cùng 1 bong bóng
-            ph = st.empty()
+            # placeholder chứa hộp trạng thái để có thể .empty() sau khi xong
+            thinking_ph = st.empty()
+
+            # Hiển thị trạng thái trong placeholder
             if hasattr(st, "status"):
-                ctx = st.status("🤔 Đang suy nghĩ…", state="running")
+                with thinking_ph.container():
+                    ctx = st.status("🤔 Đang suy nghĩ…", state="running")
+                    with ctx:
+                        try:
+                            data = post_json(
+                                "/chat",
+                                {
+                                    "messages": st.session_state.messages,
+                                    "session_id": st.session_state.session_id,
+                                },
+                            )
+                            reply = (
+                                (data or {}).get("answer")
+                                or (data or {}).get("reply")
+                                or (data or {}).get("response")
+                                or "Xin lỗi, hiện chưa có phản hồi."
+                            )
+                        except requests.RequestException as e:
+                            reply = (
+                                "Không thể kết nối tới backend. "
+                                "Kiểm tra BACKEND_URL trong Secrets hoặc thử lại sau.\n\n"
+                                f"Chi tiết lỗi: `{e}`"
+                            )
             else:
-                ctx = st.spinner("🤔 Đang suy nghĩ…")
-            with ctx:
-                try:
-                    data = post_json(
-                        "/chat",
-                        {
-                            "messages": st.session_state.messages,
-                            "session_id": st.session_state.session_id,
-                        },
-                    )
-                    reply = (
-                        (data or {}).get("answer")
-                        or (data or {}).get("reply")
-                        or (data or {}).get("response")
-                        or "Xin lỗi, hiện chưa có phản hồi."
-                    )
-                except requests.RequestException as e:
-                    reply = (
-                        "Không thể kết nối tới backend. "
-                        "Kiểm tra BACKEND_URL trong Secrets hoặc thử lại sau.\n\n"
-                        f"Chi tiết lỗi: `{e}`"
-                    )
-            # thay indicator bằng nội dung trả lời
-            ph.markdown(reply)
+                # fallback spinner – tự tắt khi xong
+                with st.spinner("🤔 Đang suy nghĩ…"):
+                    try:
+                        data = post_json(
+                            "/chat",
+                            {
+                                "messages": st.session_state.messages,
+                                "session_id": st.session_state.session_id,
+                            },
+                        )
+                        reply = (
+                            (data or {}).get("answer")
+                            or (data or {}).get("reply")
+                            or (data or {}).get("response")
+                            or "Xin lỗi, hiện chưa có phản hồi."
+                        )
+                    except requests.RequestException as e:
+                        reply = (
+                            "Không thể kết nối tới backend. "
+                            "Kiểm tra BACKEND_URL trong Secrets hoặc thử lại sau.\n\n"
+                            f"Chi tiết lỗi: `{e}`"
+                        )
+
+            # XÓA hộp trạng thái (kể cả ✅) rồi hiển thị câu trả lời
+            thinking_ph.empty()
+            st.markdown(reply)
 
         # cập nhật state (không rerun để giữ ô nhập ở cuối)
-        st.session_state.messages.append({"role": "assistant", "content": reply, "ts": datetime.utcnow().isoformat()})
+        st.session_state.messages.append(
+            {"role": "assistant", "content": reply, "ts": datetime.utcnow().isoformat()}
+        )
         st.session_state.last_reply = reply
         st.session_state.awaiting_response = False
         st.session_state.last_user_text = None
@@ -207,7 +235,9 @@ with tab_user:
     user_input = st.chat_input("Nhập câu hỏi của bạn...")
     if user_input:
         # Pha 1: thêm câu hỏi → bật chờ → rerun để câu hỏi hiển thị ngay phía trên ô nhập
-        st.session_state.messages.append({"role": "user", "content": user_input, "ts": datetime.utcnow().isoformat()})
+        st.session_state.messages.append(
+            {"role": "user", "content": user_input, "ts": datetime.utcnow().isoformat()}
+        )
         st.session_state.last_user_text = user_input
         st.session_state.awaiting_response = True
         safe_rerun()
