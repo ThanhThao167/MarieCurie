@@ -24,32 +24,47 @@ st.markdown(
     """
     <style>
     /* Tabs: bo tròn + nhấn tab đang chọn */
-    div.stTabs [data-baseweb="tab-list"]{gap:.35rem}
+    div.stTabs [data-baseweb="tab-list"]{ gap:.35rem; }
     div.stTabs [data-baseweb="tab-list"] button[role="tab"]{
-      background:transparent;border:1px solid transparent;border-bottom:none;
-      padding:.5rem 1rem;border-radius:12px 12px 0 0
+      background:transparent; border:1px solid transparent; border-bottom:none;
+      padding:.5rem 1rem; border-radius:12px 12px 0 0;
     }
     div.stTabs [data-baseweb="tab-list"] button[role="tab"][aria-selected="true"]{
-      background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.15);color:#fff
+      background:rgba(255,255,255,.08); border-color:rgba(255,255,255,.15); color:#fff;
     }
-    div.stTabs [data-baseweb="tab-list"] button p{font-size:1rem;font-weight:700}
+    div.stTabs [data-baseweb="tab-list"] button p{ font-size:1rem; font-weight:700; }
 
     /* Tiêu đề lớn giống ảnh */
-    .hero-title{font-size:2.2rem;font-weight:800;margin:0.3rem 0 0.8rem 0}
+    .hero-title{ font-size:2.2rem; font-weight:800; margin:.3rem 0 .8rem 0; }
 
     /* Chat bubble tối, bo lớn */
-    .chat-bubble{background:#151a22;border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:0.75rem 1rem;margin:.35rem 0}
-    .chat-bubble.user{background:#1a1f29;border-color:rgba(244,63,94,.25)}     /* đỏ nhạt */
-    .chat-bubble.assistant{background:#171f17;border-color:rgba(234,179,8,.25)}/* vàng nhạt */
-    .soft{opacity:.9}
+    .chat-bubble{
+      background:#151a22; border:1px solid rgba(255,255,255,.08);
+      border-radius:16px; padding:.75rem 1rem; margin:.35rem 0;
+    }
+    .chat-bubble.user{
+      background:#1a1f29; border-color:rgba(244,63,94,.25);  /* đỏ nhạt */
+    }
+    .chat-bubble.assistant{
+      background:#171f17; border-color:rgba(234,179,8,.25);  /* vàng nhạt */
+    }
+
+    /* Văn bản TRẮNG trong mọi khung chat */
+    .chat-bubble, .chat-bubble *{ color:#fff !important; }
+
+    .soft{ opacity:.9; }
 
     /* Ô nhập đỏ viền như ảnh */
-    .stChatInput textarea{border:2px solid rgba(239,68,68,.4)!important;border-radius:12px!important}
-    .small-btn > button{padding:.25rem .5rem;min-width:0;border-radius:10px}
+    .stChatInput textarea{
+      border:2px solid rgba(239,68,68,.40) !important; border-radius:12px !important;
+    }
+
+    .small-btn > button{ padding:.25rem .5rem; min-width:0; border-radius:10px; }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
 
 # ---------------- Utils ----------------
 def do_rerun() -> None:
