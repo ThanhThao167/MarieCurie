@@ -1,349 +1,360 @@
 # streamlit_chat.py
-# Chatbot tuyển sinh 10 – Streamlit (UI chuẩn: câu hỏi mới ở cuối + thinking)
-# Tương thích Streamlit/Python cũ (fallback rerun).
+# ============================================================================
+# Chatbot tư vấn tuyển sinh 10 – Marie Curie
+# Frontend: Streamlit. Gọi backend qua HTTP.
+# Thiết kế:
+#   - Lời chào là một message thật (không render tạm, không cần rerun)
+#   - Không dùng st.experimental_rerun để tránh "mất" lượt chat đầu tiên
+#   - Phân tách module: cấu hình, gọi API, UI User/Admin, tiện ích
+#   - Bắt lỗi mạng/timeout rõ ràng, hiển thị thông báo thân thiện
+#   - Bảo mật đơn giản cho tab Quản trị bằng ADMIN_PASSWORD
+# ============================================================================
+
+from __future__ import annotations
 
 import os
-import uuid
+import io
+import json
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
+
 import requests
 import pandas as pd
-from datetime import datetime
-from contextlib import suppress
-from typing import Optional
 import streamlit as st
 
-# ---------------- Page setup & CSS ----------------
-st.set_page_config(
-    page_title="Chatbot AI- trợ lí ảo hỗ trợ tư vấn tuyển sinh 10- THPT Marie Curie",
-    page_icon="🤖",
-    layout="wide",
-)
-st.markdown("""
+# ============================== CẤU HÌNH UI =================================
+APP_TITLE = "Chatbot AI – trợ lí ảo hỗ trợ tư vấn tuyển sinh 10 – THPT Marie Curie"
+PAGE_ICON = "🤖"
+LAYOUT = "wide"
+THEME_HINT = """
 <style>
-div.stTabs [data-baseweb="tab-list"]{gap:.25rem}
-div.stTabs [data-baseweb="tab-list"] button[role="tab"]{
-  background:transparent;border:1px solid transparent;border-bottom:none;
-  padding:.5rem 1rem;border-radius:10px 10px 0 0
-}
-div.stTabs [data-baseweb="tab-list"] button[role="tab"][aria-selected="true"]{
-  background:rgba(31,111,235,.2);border-color:rgba(31,111,235,.35);color:#fff
-}
-div.stTabs [data-baseweb="tab-list"] button p{font-size:1rem;font-weight:600}
-.stChatInput textarea{border:2px solid rgba(255,255,255,.15)!important;border-radius:12px!important}
-.small-btn > button{padding:.25rem .5rem;min-width:0;border-radius:10px}
+    /* Tăng tính dễ đọc */
+    .markdown-text-container { font-size: 1.05rem; }
+    .stChatMessage { line-height: 1.5; }
+    /* Nút nhỏ gọn */
+    .stButton > button { border-radius: 0.6rem; padding: 0.4rem 0.9rem; }
 </style>
-""", unsafe_allow_html=True)
+"""
 
-# ---------------- Utils ----------------
-def safe_rerun() -> None:
-    """Rerun an toàn cho mọi phiên bản Streamlit."""
+DEFAULT_TIMEOUT = (10, 60)  # (connect, read) seconds
+BACKEND_URL = os.getenv("BACKEND_URL", "").rstrip("/")
+ADMIN_PASSWORD_ENV = os.getenv("ADMIN_PASSWORD", "admin123")  # nhớ đổi khi deploy
+
+# ============================== TIỆN ÍCH CHUNG ==============================
+
+def now_iso() -> str:
+    return datetime.utcnow().isoformat()
+
+def human_err(exc: Exception) -> str:
+    return f"Lỗi kết nối tới backend: {exc.__class__.__name__} – {exc}"
+
+def as_dataframe_safe(data: Any) -> pd.DataFrame:
     try:
-        st.rerun()
+        if isinstance(data, list):
+            return pd.DataFrame(data)
+        if isinstance(data, dict):
+            return pd.DataFrame([data])
     except Exception:
-        exp = getattr(st, "experimental_rerun", None)
-        if callable(exp):
-            exp()
+        pass
+    return pd.DataFrame()
 
-# ---------------- Config ----------------
-BACKEND_URL = os.getenv("BACKEND_URL") or st.secrets.get("BACKEND_URL", "http://localhost:8000")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD") or st.secrets.get("ADMIN_PASSWORD", "admin123")
-DEFAULT_TIMEOUT = 60
+# ============================== LỚP API CLIENT ==============================
 
-def _join(p: str) -> str:
-    return f"{BACKEND_URL.rstrip('/')}/{p.lstrip('/')}"
+class BackendClient:
+    """
+    Gói gọn việc gọi backend. Chấp nhận các biến thể field trả lời:
+    {answer} hoặc {reply} hoặc {response}
+    """
 
-def post_json(p: str, payload: dict):
-    r = requests.post(_join(p), json=payload, timeout=DEFAULT_TIMEOUT)
-    r.raise_for_status()
-    try:
-        return r.json()
-    except Exception:
-        return {"text": r.text}
+    def __init__(self, base_url: str):
+        self.base_url = base_url
 
-def post_form(p: str, form: dict):
-    r = requests.post(_join(p), data=form, timeout=DEFAULT_TIMEOUT)
-    r.raise_for_status()
-    try:
-        return r.json()
-    except Exception:
-        return {"text": r.text}
+    def _url(self, path: str) -> str:
+        if not self.base_url:
+            raise RuntimeError("BACKEND_URL chưa được cấu hình.")
+        return f"{self.base_url}{path}"
 
-def get_json(p: str):
-    try:
-        r = requests.get(_join(p), timeout=DEFAULT_TIMEOUT)
-        if r.status_code == 404:
-            return None
-        r.raise_for_status()
+    def health(self) -> Tuple[bool, str]:
         try:
-            return r.json()
-        except Exception:
-            return {"text": r.text}
-    except requests.RequestException:
-        return None
+            r = requests.get(self._url("/health"), timeout=DEFAULT_TIMEOUT)
+            if r.ok:
+                return True, f"OK ({r.status_code})"
+            return False, f"DOWN ({r.status_code})"
+        except Exception as e:
+            return False, human_err(e)
 
-def get_csv_as_df(p: str):
-    try:
-        return pd.read_csv(_join(p))
-    except Exception:
-        return None
-
-# ---------------- Session state ----------------
-if "session_id" not in st.session_state:
-    st.session_state.session_id = str(uuid.uuid4())
-if "messages" not in st.session_state:
-    st.session_state.messages = []  # [{"role":"user/assistant","content":str,"ts":iso}]
-if "last_reply" not in st.session_state:
-    st.session_state.last_reply = ""
-if "awaiting_response" not in st.session_state:
-    st.session_state.awaiting_response = False
-if "last_user_text" not in st.session_state:
-    st.session_state.last_user_text = None
-if "greeted" not in st.session_state:
-    st.session_state.greeted = False
-
-# ---------------- Tabs ----------------
-tab_user, tab_admin = st.tabs(["👨‍🎓 Người dùng", "🛠 Quản trị"])
-
-# ---------------- User tab ----------------
-with tab_user:
-    st.title("🤖 Chatbot AI- trợ lí ảo hỗ trợ tư vấn tuyển sinh 10- THPT Marie Curie")
-
-    # 1) HIỂN THỊ LỊCH SỬ (và lời chào nếu lần đầu)
-    history_box = st.container()
-    with history_box:
-        if not st.session_state.messages and not st.session_state.greeted:
-            with st.chat_message("assistant"):
-                st.markdown(
-                    "Chào bạn! mình là chatbot tuyển sinh 10, "
-                    "sẵn sàng giải đáp mọi thắc mắc của bạn. Hãy đặt câu hỏi cho mình nhé!"
-                )
-            st.session_state.greeted = True
-
-        # tìm chỉ số câu trả lời assistant cuối để đặt nút 👍👎
-        last_ass_idx = None
-        for i, m in enumerate(st.session_state.messages):
-            if m.get("role") == "assistant":
-                last_ass_idx = i
-
-        # vẽ toàn bộ lịch sử
-        for i, msg in enumerate(st.session_state.messages):
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-
-            # nút feedback gắn vào câu trả lời assistant gần nhất
-            if i == last_ass_idx:
-                prev_q = ""
-                for j in range(i - 1, -1, -1):
-                    if st.session_state.messages[j]["role"] == "user":
-                        prev_q = st.session_state.messages[j]["content"]
-                        break
-                c1, c2, _ = st.columns([0.07, 0.07, 0.86])
-                with c1:
-                    if st.button("👍", key=f"fb_up_{i}", help="Hài lòng"):
-                        with suppress(Exception):
-                            post_form(
-                                "/feedback",
-                                {
-                                    "session_id": st.session_state.session_id,
-                                    "question": prev_q,
-                                    "answer": msg["content"],
-                                    "rating": "up",
-                                },
-                            )
-                        st.success("Đã gửi phản hồi 👍")
-                with c2:
-                    if st.button("👎", key=f"fb_dn_{i}", help="Chưa tốt"):
-                        with suppress(Exception):
-                            post_form(
-                                "/feedback",
-                                {
-                                    "session_id": st.session_state.session_id,
-                                    "question": prev_q,
-                                    "answer": msg["content"],
-                                    "rating": "down",
-                                },
-                            )
-                        st.success("Đã gửi phản hồi 👎")
-
-    # 2) PHA 2: nếu đang chờ → hiển thị THINKING rồi thay bằng câu trả lời
-    if st.session_state.awaiting_response and st.session_state.last_user_text:
-        with st.chat_message("assistant"):
-            # placeholder chứa hộp trạng thái để có thể .empty() sau khi xong
-            thinking_ph = st.empty()
-
-            # Hiển thị trạng thái trong placeholder
-            if hasattr(st, "status"):
-                with thinking_ph.container():
-                    ctx = st.status("🤔 Đang suy nghĩ…", state="running")
-                    with ctx:
-                        try:
-                            data = post_json(
-                                "/chat",
-                                {
-                                    "messages": st.session_state.messages,
-                                    "session_id": st.session_state.session_id,
-                                },
-                            )
-                            reply = (
-                                (data or {}).get("answer")
-                                or (data or {}).get("reply")
-                                or (data or {}).get("response")
-                                or "Xin lỗi, hiện chưa có phản hồi."
-                            )
-                        except requests.RequestException as e:
-                            reply = (
-                                "Không thể kết nối tới backend. "
-                                "Kiểm tra BACKEND_URL trong Secrets hoặc thử lại sau.\n\n"
-                                f"Chi tiết lỗi: `{e}`"
-                            )
-            else:
-                # fallback spinner – tự tắt khi xong
-                with st.spinner("🤔 Đang suy nghĩ…"):
-                    try:
-                        data = post_json(
-                            "/chat",
-                            {
-                                "messages": st.session_state.messages,
-                                "session_id": st.session_state.session_id,
-                            },
-                        )
-                        reply = (
-                            (data or {}).get("answer")
-                            or (data or {}).get("reply")
-                            or (data or {}).get("response")
-                            or "Xin lỗi, hiện chưa có phản hồi."
-                        )
-                    except requests.RequestException as e:
-                        reply = (
-                            "Không thể kết nối tới backend. "
-                            "Kiểm tra BACKEND_URL trong Secrets hoặc thử lại sau.\n\n"
-                            f"Chi tiết lỗi: `{e}`"
-                        )
-
-            # XÓA hộp trạng thái (kể cả ✅) rồi hiển thị câu trả lời
-            thinking_ph.empty()
-            st.markdown(reply)
-
-        # cập nhật state (không rerun để giữ ô nhập ở cuối)
-        st.session_state.messages.append(
-            {"role": "assistant", "content": reply, "ts": datetime.utcnow().isoformat()}
-        )
-        st.session_state.last_reply = reply
-        st.session_state.awaiting_response = False
-        st.session_state.last_user_text = None
-
-    # 3) Ô NHẬP – LUÔN Ở CUỐI TRANG
-    user_input = st.chat_input("Nhập câu hỏi của bạn...")
-    if user_input:
-        # Pha 1: thêm câu hỏi → bật chờ → rerun để câu hỏi hiển thị ngay phía trên ô nhập
-        st.session_state.messages.append(
-            {"role": "user", "content": user_input, "ts": datetime.utcnow().isoformat()}
-        )
-        st.session_state.last_user_text = user_input
-        st.session_state.awaiting_response = True
-        safe_rerun()
-
-# ---------------- Admin tab (giữ nguyên tính năng) ----------------
-with tab_admin:
-    st.header("🛠 Khu vực Quản trị")
-    pwd = st.text_input("Nhập mật khẩu quản trị", type="password")
-    if pwd != ADMIN_PASSWORD:
-        st.info("Nhập đúng mật khẩu để truy cập công cụ quản trị. Đặt `ADMIN_PASSWORD` trong ENV hoặc st.secrets.")
-        st.stop()
-
-    st.success("Đăng nhập quản trị thành công ✅")
-
-    st.subheader("✅ Kiểm tra tình trạng Backend")
-    colA, colB = st.columns([1, 1])
-    with colA:
-        if st.button("Ping /health"):
-            result = get_json("/health")
-            st.write(result if result else "Không gọi được `/health`.")
-    with colB:
-        st.write(f"**BACKEND_URL:** `{BACKEND_URL}`")
-
-    st.divider()
-    st.subheader("🗂 Lịch sử hội thoại")
-    st.caption("Đọc từ `/history` (JSON) hoặc `/chat_history.csv` (CSV).")
-    tabs_hist = st.tabs(["/history (JSON)", "/chat_history.csv (CSV)"])
-    with tabs_hist[0]:
-        hist = get_json("/history")
-        if isinstance(hist, list) and hist:
-            st.dataframe(pd.DataFrame(hist), use_container_width=True)
-        else:
-            st.info("Không có endpoint `/history` hoặc không truy cập được.")
-    with tabs_hist[1]:
-        df_hist = get_csv_as_df("/chat_history.csv")
-        if df_hist is not None:
-            st.dataframe(df_hist, use_container_width=True)
-        else:
-            st.info("Không tìm thấy `/chat_history.csv`.")
-
-    st.divider()
-    st.subheader("📝 Feedback")
-    tabs_fb = st.tabs(["/feedbacks (JSON)", "/feedback.csv (CSV)"])
-    with tabs_fb[0]:
-        fjson = get_json("/feedbacks")
-        if isinstance(fjson, list) and fjson:
-            st.dataframe(pd.DataFrame(fjson), use_container_width=True)
-        else:
-            st.info("Không có endpoint `/feedbacks` hoặc không truy cập được.")
-    with tabs_fb[1]:
-        df_fb = get_csv_as_df("/feedback.csv")
-        if df_fb is not None:
-            st.dataframe(df_fb, use_container_width=True)
-        else:
-            st.info("Không tìm thấy `/feedback.csv`.")
-
-    st.divider()
-    st.subheader("📈 Top 10 câu hỏi được hỏi nhiều nhất")
-    def _load_questions_series() -> Optional[pd.Series]:
-        data = get_json("/history")
-        df = pd.DataFrame(data) if isinstance(data, list) and data else get_csv_as_df("/chat_history.csv")
-        if df is None or df.empty:
-            return None
-        for col in ["question", "user_input", "prompt", "text", "content"]:
-            if col in df.columns:
-                s = df[col].dropna().astype(str)
-                if "role" in df.columns:
-                    try:
-                        s = df.loc[df["role"].astype(str).str.lower().eq("user"), col].dropna().astype(str)
-                    except Exception:
-                        pass
-                return s if not s.empty else None
-        if {"role", "content"}.issubset(df.columns):
-            s = df.loc[df["role"].astype(str).str.lower().eq("user"), "content"].dropna().astype(str)
-            return s if not s.empty else None
-        return None
-
-    s = _load_questions_series()
-    if s is None or s.empty:
-        st.info("Chưa có dữ liệu câu hỏi (cần `/history` JSON hoặc `/chat_history.csv`).")
-    else:
-        s_norm = s.astype(str).str.strip().str.lower().str.replace(r"\s+", " ", regex=True)
-        counts = s_norm.value_counts().head(10)
-        rep = {}
-        for t in s:
-            k = " ".join(str(t).strip().lower().split())
-            if k not in rep:
-                rep[k] = str(t).strip()
-        df_top = pd.DataFrame({"Câu hỏi": [rep.get(k, k) for k in counts.index], "Số lần": counts.values})
-        st.dataframe(df_top, use_container_width=True)
-        st.bar_chart(df_top.set_index("Câu hỏi")["Số lần"])
-
-    st.divider()
-    st.subheader("⬆️ Cập nhật MC_chatbot.csv (tuỳ chọn)")
-    st.caption("Frontend không ghi trực tiếp file lên server. Tạo endpoint `POST /upload_mc_data` ở backend nếu cần.")
-    up = st.file_uploader("Chọn file MC_chatbot.csv", type=["csv"])
-    if up and st.button("Gửi lên backend (/upload_mc_data)"):
+    def chat(self, user_text: str, history: List[Dict[str, str]]) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        Gọi POST /chat. Backend nên hiểu trường:
+            - user_input (hoặc question, hoặc prompt)
+            - history: danh sách {role, content}
+        """
+        payload = {
+            "user_input": user_text,
+            "history": history,
+        }
         try:
-            r = requests.post(
-                _join("/upload_mc_data"),
-                files={"file": ("MC_chatbot.csv", up.getvalue(), "text/csv")},
-                timeout=DEFAULT_TIMEOUT,
+            r = requests.post(self._url("/chat"), json=payload, timeout=DEFAULT_TIMEOUT)
+            if not r.ok:
+                return False, f"HTTP {r.status_code}: {r.text[:200]}", {}
+            data = r.json()
+            text = data.get("answer") or data.get("reply") or data.get("response") or ""
+            if not isinstance(text, str) or not text.strip():
+                return False, "Backend không trả về nội dung hợp lệ (answer/reply/response).", data
+            return True, text, data
+        except Exception as e:
+            return False, human_err(e), {}
+
+    def send_feedback(self, question: str, answer: str, rating: int, meta: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
+        payload = {
+            "question": question,
+            "answer": answer,
+            "rating": rating,  # +1 or -1
+            "meta": meta or {},
+            "ts": now_iso(),
+        }
+        try:
+            r = requests.post(self._url("/feedback"), json=payload, timeout=DEFAULT_TIMEOUT)
+            if r.ok:
+                return True, "Đã ghi nhận phản hồi."
+            return False, f"HTTP {r.status_code}: {r.text[:200]}"
+        except Exception as e:
+            return False, human_err(e)
+
+    def fetch_json(self, path: str) -> Tuple[bool, Any, str]:
+        try:
+            r = requests.get(self._url(path), timeout=DEFAULT_TIMEOUT)
+            if not r.ok:
+                return False, None, f"HTTP {r.status_code}: {r.text[:200]}"
+            return True, r.json(), "OK"
+        except Exception as e:
+            return False, None, human_err(e)
+
+    def fetch_csv_bytes(self, path: str) -> Tuple[bool, bytes, str]:
+        try:
+            r = requests.get(self._url(path), timeout=DEFAULT_TIMEOUT)
+            if not r.ok:
+                return False, b"", f"HTTP {r.status_code}: {r.text[:200]}"
+            return True, r.content, "OK"
+        except Exception as e:
+            return False, b"", human_err(e)
+
+    def upload_mc_csv(self, file_bytes: bytes, filename: str) -> Tuple[bool, str]:
+        files = {"file": (filename, file_bytes, "text/csv")}
+        try:
+            r = requests.post(self._url("/upload_mc_data"), files=files, timeout=DEFAULT_TIMEOUT)
+            if r.ok:
+                return True, "Upload thành công và backend đã nhận dữ liệu."
+            return False, f"HTTP {r.status_code}: {r.text[:200]}"
+        except Exception as e:
+            return False, human_err(e)
+
+# ============================== KHỞI TẠO STATE ==============================
+
+def init_state() -> None:
+    st.set_page_config(page_title=APP_TITLE, page_icon=PAGE_ICON, layout=LAYOUT)
+    st.markdown(THEME_HINT, unsafe_allow_html=True)
+
+    if "messages" not in st.session_state:
+        st.session_state.messages: List[Dict[str, Any]] = []
+    if "last_answer" not in st.session_state:
+        st.session_state.last_answer = ""
+    if "last_question" not in st.session_state:
+        st.session_state.last_question = ""
+    if "admin_authed" not in st.session_state:
+        st.session_state.admin_authed = False
+
+    # Lời chào là một message thật, chỉ tạo một lần khi list rỗng
+    if len(st.session_state.messages) == 0:
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": (
+                "Chào bạn! Mình là trợ lí ảo tuyển sinh 10 – THPT Marie Curie. "
+                "Bạn có thể hỏi về quy chế tuyển sinh, hồ sơ, mốc thời gian, điểm chuẩn… "
+                "Hãy đặt câu hỏi bên dưới nhé!"
+            ),
+            "ts": now_iso()
+        })
+
+# ============================== UI: USER TAB =================================
+
+def render_user_tab(client: BackendClient) -> None:
+    st.header("👤 Người dùng")
+
+    # 1) Hiển thị lịch sử đã có
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # 2) Nhận input
+    user_text = st.chat_input("Nhập câu hỏi của bạn…")
+    if not user_text:
+        return
+
+    # 3) Append câu hỏi NGAY LẬP TỨC (không rerun)
+    st.session_state.messages.append({
+        "role": "user",
+        "content": user_text,
+        "ts": now_iso()
+    })
+    with st.chat_message("user"):
+        st.markdown(user_text)
+
+    # 4) Gọi backend và render "assistant thinking" trong cùng lượt
+    with st.chat_message("assistant"):
+        thinking_placeholder = st.empty()
+        thinking_placeholder.markdown("_Đang soạn câu trả lời…_")
+
+        success, answer_text, raw = client.chat(
+            user_text=user_text,
+            history=[
+                {"role": m["role"], "content": m["content"]}
+                for m in st.session_state.messages
+                if m["role"] in ("user", "assistant")
+            ],
+        )
+
+        if success:
+            thinking_placeholder.empty()
+            st.markdown(answer_text)
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": answer_text,
+                "ts": now_iso()
+            })
+            st.session_state.last_question = user_text
+            st.session_state.last_answer = answer_text
+        else:
+            thinking_placeholder.empty()
+            st.error(answer_text)
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"Xin lỗi, hiện chưa kết nối được: {answer_text}",
+                "ts": now_iso()
+            })
+            st.session_state.last_question = user_text
+            st.session_state.last_answer = ""
+
+    # 5) Feedback cho câu trả lời vừa nhận
+    col1, col2, col3 = st.columns([1,1,6])
+    with col1:
+        if st.button("👍 Hữu ích", use_container_width=True):
+            ok, msg = client.send_feedback(
+                st.session_state.last_question,
+                st.session_state.last_answer,
+                rating=+1,
+                meta={"source": "streamlit", "version": 1},
             )
-            if r.status_code == 200:
-                st.success("Đã gửi file lên backend.")
+            st.toast("Cảm ơn phản hồi!" if ok else f"Không ghi được phản hồi: {msg}")
+    with col2:
+        if st.button("👎 Chưa tốt", use_container_width=True):
+            ok, msg = client.send_feedback(
+                st.session_state.last_question,
+                st.session_state.last_answer,
+                rating=-1,
+                meta={"source": "streamlit", "version": 1},
+            )
+            st.toast("Đã ghi nhận góp ý!" if ok else f"Không ghi được phản hồi: {msg}")
+
+# ============================== UI: ADMIN TAB ================================
+
+def render_admin_tab(client: BackendClient) -> None:
+    st.header("🛠️ Quản trị")
+
+    # --- Xác thực đơn giản ---
+    if not st.session_state.admin_authed:
+        with st.form("admin_login", clear_on_submit=False):
+            pwd = st.text_input("Mật khẩu quản trị", type="password")
+            ok = st.form_submit_button("Đăng nhập")
+        if ok:
+            if pwd and pwd == ADMIN_PASSWORD_ENV:
+                st.session_state.admin_authed = True
+                st.success("Đăng nhập thành công.")
             else:
-                st.warning(f"Backend trả {r.status_code}: {r.text}")
-        except requests.RequestException as e:
-            st.error(f"Lỗi gửi file: {e}")
+                st.error("Sai mật khẩu.")
+        return
+
+    # --- Thông tin hệ thống ---
+    st.subheader("Tình trạng Backend")
+    colA, colB, colC = st.columns([1,1,2])
+    with colA:
+        ping = st.button("Ping /health", use_container_width=True)
+    with colB:
+        st.write(f"**BACKEND_URL:** `{BACKEND_URL or 'CHƯA CẤU HÌNH'}`")
+    if ping:
+        ok, msg = client.health()
+        (st.success if ok else st.error)(msg)
+
+    st.divider()
+
+    # --- Dữ liệu/CSV quản trị ---
+    st.subheader("Lịch sử & Phản hồi")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        if st.button("Tải JSON /history", use_container_width=True):
+            ok, data, msg = client.fetch_json("/history")
+            if ok:
+                df = as_dataframe_safe(data)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.error(msg)
+    with col2:
+        if st.button("Tải JSON /feedbacks", use_container_width=True):
+            ok, data, msg = client.fetch_json("/feedbacks")
+            if ok:
+                df = as_dataframe_safe(data)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.error(msg)
+    with col3:
+        if st.button("Tải CSV /chat_history.csv", use_container_width=True):
+            ok, b, msg = client.fetch_csv_bytes("/chat_history.csv")
+            if ok:
+                st.download_button("⬇️ Lưu chat_history.csv", b, file_name="chat_history.csv", mime="text/csv", use_container_width=True)
+            else:
+                st.error(msg)
+    with col4:
+        if st.button("Tải CSV /feedback.csv", use_container_width=True):
+            ok, b, msg = client.fetch_csv_bytes("/feedback.csv")
+            if ok:
+                st.download_button("⬇️ Lưu feedback.csv", b, file_name="feedback.csv", mime="text/csv", use_container_width=True)
+            else:
+                st.error(msg)
+
+    st.divider()
+
+    # --- Upload dữ liệu câu hỏi/FAQ (MC_chatbot.csv) ---
+    st.subheader("Cập nhật dữ liệu tư vấn (CSV)")
+    up = st.file_uploader("Chọn file CSV (ví dụ: MC_chatbot.csv)", type=["csv"])
+    if up is not None:
+        bytes_io = up.read()
+        if st.button("📤 Upload lên backend", use_container_width=True):
+            ok, msg = client.upload_mc_csv(bytes_io, up.name)
+            (st.success if ok else st.error)(msg)
+
+# ============================== MAIN APP =====================================
+
+def main() -> None:
+    init_state()
+
+    # Nhắc cấu hình nếu thiếu BACKEND_URL
+    if not BACKEND_URL:
+        st.warning("⚠️ Chưa cấu hình biến môi trường BACKEND_URL. Hãy đặt BACKEND_URL trỏ tới Railway (ví dụ: https://your-app.up.railway.app).")
+
+    client = BackendClient(BACKEND_URL) if BACKEND_URL else None
+    tabs = st.tabs(["Người dùng", "Quản trị"])
+
+    with tabs[0]:
+        if client:
+            render_user_tab(client)
+        else:
+            st.info("Chưa có BACKEND_URL nên không thể gửi câu hỏi. Vui lòng cấu hình rồi tải lại trang.")
+
+    with tabs[1]:
+        if client:
+            render_admin_tab(client)
+        else:
+            st.info("Chưa có BACKEND_URL – các tính năng quản trị sẽ hoạt động sau khi cấu hình.")
+
+if __name__ == "__main__":
+    main()
