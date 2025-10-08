@@ -140,20 +140,36 @@ with tab_user:
         st.session_state.awaiting_response = True
         do_rerun()
 
-    # bước 2: nếu đang chờ -> gọi backend, thêm câu trả lời rồi rerun để hiển thị ở cuối
-    if st.session_state.awaiting_response:
-        try:
-            data = post_json("/chat", {
-                "messages": st.session_state.messages,
-                "session_id": st.session_state.session_id
-            })
-            reply = (data or {}).get("reply") or (data or {}).get("response") or "Xin lỗi, hiện chưa có phản hồi."
-        except requests.RequestException as e:
-            reply = "Không thể kết nối tới backend. Kiểm tra BACKEND_URL trong Secrets hoặc thử lại sau.\n\n" + f"Chi tiết lỗi: `{e}`"
-        st.session_state.messages.append({"role":"assistant","content": reply})
-        st.session_state.last_reply = reply
-        st.session_state.awaiting_response = False
-        do_rerun()
+# bước 2: nếu đang chờ -> hiển thị THINKING đúng cách & gọi backend
+if st.session_state.awaiting_response:
+    with st.chat_message("assistant"):
+        ph = st.empty()
+        # Streamlit >=1.26 có st.status; fallback dùng spinner
+        ctx = st.status("🤔 Đang suy nghĩ…", state="running") if hasattr(st, "status") else st.spinner("🤔 Đang suy nghĩ…")
+        with ctx:
+            try:
+                data = post_json(
+                    "/chat",
+                    {"messages": st.session_state.messages, "session_id": st.session_state.session_id},
+                    # có thể giảm timeout nếu muốn UI phản hồi nhanh hơn
+                )
+                reply = (data or {}).get("answer") or (data or {}).get("reply") \
+                        or (data or {}).get("response") or "Xin lỗi, hiện chưa có phản hồi."
+            except requests.RequestException as e:
+                reply = (
+                    "Không thể kết nối tới backend. Kiểm tra BACKEND_URL trong Secrets hoặc thử lại sau.\n\n"
+                    f"Chi tiết lỗi: `{e}`"
+                )
+
+        # thay bong bóng 'đang suy nghĩ' bằng câu trả lời
+        ph.markdown(reply)
+
+    # lưu & reset cờ (KHÔNG cần rerun thêm lần nữa)
+    st.session_state.messages.append({"role": "assistant", "content": reply})
+    st.session_state.last_reply = reply
+    st.session_state.awaiting_response = False
+    # do_rerun()  # nếu muốn làm “sạch” UI cũng được, nhưng thường không cần
+
 
     if os.getenv("SHOW_DEBUG") == "1":
         st.caption(f"Phiên: `{st.session_state.session_id}` • Backend: `{BACKEND_URL}` • Thời gian: {datetime.now():%Y-%m-%d %H:%M:%S}")
