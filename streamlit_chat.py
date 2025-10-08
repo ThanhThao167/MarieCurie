@@ -1,6 +1,6 @@
 # streamlit_chat.py
 # Chatbot tuyển sinh 10 – Streamlit (UI chuẩn: câu hỏi mới ở cuối + thinking)
-# Bản tương thích Streamlit/Python cũ (fallback rerun & type hints).
+# Bản tương thích Streamlit/Python cũ (fallback rerun).
 
 import os
 import uuid
@@ -34,56 +34,71 @@ div.stTabs [data-baseweb="tab-list"] button p{font-size:1rem;font-weight:600}
 """, unsafe_allow_html=True)
 
 # ---------------- Utils ----------------
-def do_rerun() -> None:
+def safe_rerun() -> None:
     """Rerun an toàn cho mọi phiên bản Streamlit."""
     try:
-        st.rerun()  # Streamlit >= 1.30
+        st.rerun()
     except Exception:
-        try:
-            st.experimental_rerun()  # bản cũ
-        except Exception:
-            pass  # cùng lắm không rerun, UI vẫn hoạt động
+        exp = getattr(st, "experimental_rerun", None)
+        if callable(exp):
+            exp()
 
 # ---------------- Config ----------------
 BACKEND_URL = os.getenv("BACKEND_URL") or st.secrets.get("BACKEND_URL", "http://localhost:8000")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD") or st.secrets.get("ADMIN_PASSWORD", "admin123")
 DEFAULT_TIMEOUT = 60
 
-def _join(p:str)->str: return f"{BACKEND_URL.rstrip('/')}/{p.lstrip('/')}"
+def _join(p: str) -> str:
+    return f"{BACKEND_URL.rstrip('/')}/{p.lstrip('/')}"
 
-def post_json(p:str, payload:dict):
-    r=requests.post(_join(p), json=payload, timeout=DEFAULT_TIMEOUT); r.raise_for_status()
-    try: return r.json()
-    except: return {"text": r.text}
-
-def post_form(p:str, form:dict):
-    r=requests.post(_join(p), data=form, timeout=DEFAULT_TIMEOUT); r.raise_for_status()
-    try: return r.json()
-    except: return {"text": r.text}
-
-def get_json(p:str):
+def post_json(p: str, payload: dict):
+    r = requests.post(_join(p), json=payload, timeout=DEFAULT_TIMEOUT)
+    r.raise_for_status()
     try:
-        r=requests.get(_join(p), timeout=DEFAULT_TIMEOUT)
-        if r.status_code==404: return None
+        return r.json()
+    except Exception:
+        return {"text": r.text}
+
+def post_form(p: str, form: dict):
+    r = requests.post(_join(p), data=form, timeout=DEFAULT_TIMEOUT)
+    r.raise_for_status()
+    try:
+        return r.json()
+    except Exception:
+        return {"text": r.text}
+
+def get_json(p: str):
+    try:
+        r = requests.get(_join(p), timeout=DEFAULT_TIMEOUT)
+        if r.status_code == 404:
+            return None
         r.raise_for_status()
-        try: return r.json()
-        except: return {"text": r.text}
+        try:
+            return r.json()
+        except Exception:
+            return {"text": r.text}
     except requests.RequestException:
         return None
 
-def get_csv_as_df(p:str):
-    try: return pd.read_csv(_join(p))
-    except: return None
+def get_csv_as_df(p: str):
+    try:
+        return pd.read_csv(_join(p))
+    except Exception:
+        return None
 
 # ---------------- Session state ----------------
-if "session_id" not in st.session_state: st.session_state.session_id=str(uuid.uuid4())
-if "messages"   not in st.session_state: st.session_state.messages=[]
-if "last_reply" not in st.session_state: st.session_state.last_reply=""
-if "awaiting_response" not in st.session_state: st.session_state.awaiting_response=False
-# thêm biến lưu câu hỏi cho Pha 2
-if "last_user_text" not in st.session_state: st.session_state.last_user_text=None
-# flag chào
-if "greeted" not in st.session_state: st.session_state.greeted=False
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+if "messages" not in st.session_state:
+    st.session_state.messages = []  # [{"role":"user/assistant","content":str,"ts":iso}]
+if "last_reply" not in st.session_state:
+    st.session_state.last_reply = ""
+if "awaiting_response" not in st.session_state:
+    st.session_state.awaiting_response = False
+if "last_user_text" not in st.session_state:
+    st.session_state.last_user_text = None
+if "greeted" not in st.session_state:
+    st.session_state.greeted = False
 
 # ---------------- Tabs ----------------
 tab_user, tab_admin = st.tabs(["👨‍🎓 Người dùng", "🛠 Quản trị"])
@@ -92,13 +107,16 @@ tab_user, tab_admin = st.tabs(["👨‍🎓 Người dùng", "🛠 Quản trị"
 with tab_user:
     st.title("🤖 Chatbot AI- trợ lí ảo hỗ trợ tư vấn tuyển sinh 10- THPT Marie Curie")
 
-    chat_box = st.container()   # toàn bộ đoạn hội thoại ở đây
-    with chat_box:
-        # lời chào 1 lần
+    # 1) HIỂN THỊ LỊCH SỬ (và lời chào nếu lần đầu)
+    history_box = st.container()
+    with history_box:
         if not st.session_state.messages and not st.session_state.greeted:
             with st.chat_message("assistant"):
-                st.markdown("Chào bạn! mình là chatbot tuyển sinh 10, sẵn sàng giải đáp mọi thắc mắc của bạn. Hãy đặt câu hỏi cho mình nhé!")
-            st.session_state.greeted=True
+                st.markdown(
+                    "Chào bạn! mình là chatbot tuyển sinh 10, "
+                    "sẵn sàng giải đáp mọi thắc mắc của bạn. Hãy đặt câu hỏi cho mình nhé!"
+                )
+            st.session_state.greeted = True
 
         # tìm chỉ số câu trả lời assistant cuối để đặt nút 👍👎
         last_ass_idx = None
@@ -106,72 +124,95 @@ with tab_user:
             if m.get("role") == "assistant":
                 last_ass_idx = i
 
-        # render lịch sử
+        # vẽ toàn bộ lịch sử
         for i, msg in enumerate(st.session_state.messages):
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
+
+            # nút feedback gắn vào câu trả lời assistant gần nhất
             if i == last_ass_idx:
-                # lấy câu hỏi liền trước
                 prev_q = ""
-                for j in range(i-1, -1, -1):
+                for j in range(i - 1, -1, -1):
                     if st.session_state.messages[j]["role"] == "user":
-                        prev_q = st.session_state.messages[j]["content"]; break
+                        prev_q = st.session_state.messages[j]["content"]
+                        break
                 c1, c2, _ = st.columns([0.07, 0.07, 0.86])
                 with c1:
                     if st.button("👍", key=f"fb_up_{i}", help="Hài lòng"):
                         with suppress(Exception):
-                            post_form("/feedback", {
-                                "session_id": st.session_state.session_id,
-                                "question": prev_q, "answer": msg["content"], "rating": "up"
-                            }); st.success("Đã gửi phản hồi 👍")
+                            post_form(
+                                "/feedback",
+                                {
+                                    "session_id": st.session_state.session_id,
+                                    "question": prev_q,
+                                    "answer": msg["content"],
+                                    "rating": "up",
+                                },
+                            )
+                        st.success("Đã gửi phản hồi 👍")
                 with c2:
                     if st.button("👎", key=f"fb_dn_{i}", help="Chưa tốt"):
                         with suppress(Exception):
-                            post_form("/feedback", {
-                                "session_id": st.session_state.session_id,
-                                "question": prev_q, "answer": msg["content"], "rating": "down"
-                            }); st.success("Đã gửi phản hồi 👎")
+                            post_form(
+                                "/feedback",
+                                {
+                                    "session_id": st.session_state.session_id,
+                                    "question": prev_q,
+                                    "answer": msg["content"],
+                                    "rating": "down",
+                                },
+                            )
+                        st.success("Đã gửi phản hồi 👎")
 
-        # ========== PHA 1 ==========
-        # ô nhập luôn đặt SAU chat_box -> câu hỏi mới sẽ xuất hiện ở cuối (trên ô nhập)
-        user_input = st.chat_input("Nhập câu hỏi của bạn...")
-
-        # Khi người dùng gửi: thêm câu hỏi, bật cờ chờ và rerun để HIỂN THỊ NGAY câu hỏi
-        if user_input:
-            st.session_state.messages.append({"role":"user","content": user_input})
-            st.session_state.last_user_text = user_input
-            st.session_state.awaiting_response = True
-            do_rerun()
-
-        # ========== PHA 2 ==========
-        # Sau khi rerun, hiển thị "đang suy nghĩ…" và gọi backend NGAY TRONG TAB
-        if st.session_state.awaiting_response and st.session_state.last_user_text:
-            with st.chat_message("assistant"):
-                # status nếu phiên bản hỗ trợ, fallback spinner nếu không
-                if hasattr(st, "status"):
-                    ctx = st.status("🤔 Đang suy nghĩ…", state="running")
-                else:
-                    ctx = st.spinner("🤔 Đang suy nghĩ…")
-                with ctx:
-                    try:
-                        data = post_json("/chat", {
+    # 2) PHA 2: nếu đang chờ → hiển thị THINKING (ở TRÊN) rồi gọi backend
+    if st.session_state.awaiting_response and st.session_state.last_user_text:
+        with st.chat_message("assistant"):
+            # Dùng placeholder để thay “thinking” bằng câu trả lời trong cùng 1 bong bóng
+            ph = st.empty()
+            if hasattr(st, "status"):
+                ctx = st.status("🤔 Đang suy nghĩ…", state="running")
+            else:
+                ctx = st.spinner("🤔 Đang suy nghĩ…")
+            with ctx:
+                try:
+                    data = post_json(
+                        "/chat",
+                        {
                             "messages": st.session_state.messages,
-                            "session_id": st.session_state.session_id
-                        })
-                        reply = (data or {}).get("answer") or (data or {}).get("reply") \
-                                or (data or {}).get("response") or "Xin lỗi, hiện chưa có phản hồi."
-                    except requests.RequestException as e:
-                        reply = "Không thể kết nối tới backend. Kiểm tra BACKEND_URL trong Secrets hoặc thử lại sau.\n\n" + f"Chi tiết lỗi: `{e}`"
-                # thay bubble thinking bằng câu trả lời
-                st.markdown(reply)
+                            "session_id": st.session_state.session_id,
+                        },
+                    )
+                    reply = (
+                        (data or {}).get("answer")
+                        or (data or {}).get("reply")
+                        or (data or {}).get("response")
+                        or "Xin lỗi, hiện chưa có phản hồi."
+                    )
+                except requests.RequestException as e:
+                    reply = (
+                        "Không thể kết nối tới backend. "
+                        "Kiểm tra BACKEND_URL trong Secrets hoặc thử lại sau.\n\n"
+                        f"Chi tiết lỗi: `{e}`"
+                    )
+            # thay indicator bằng nội dung trả lời
+            ph.markdown(reply)
 
-            # lưu & kết thúc trạng thái chờ (KHÔNG rerun thêm lần nữa)
-            st.session_state.messages.append({"role":"assistant","content": reply})
-            st.session_state.last_reply = reply
-            st.session_state.awaiting_response = False
-            st.session_state.last_user_text = None
+        # cập nhật state (không rerun để giữ ô nhập ở cuối)
+        st.session_state.messages.append({"role": "assistant", "content": reply, "ts": datetime.utcnow().isoformat()})
+        st.session_state.last_reply = reply
+        st.session_state.awaiting_response = False
+        st.session_state.last_user_text = None
 
-# ---------------- Admin tab ----------------
+    # 3) Ô NHẬP – LUÔN Ở CUỐI TRANG
+    user_input = st.chat_input("Nhập câu hỏi của bạn...")
+    if user_input:
+        # Pha 1: thêm câu hỏi → bật chờ → rerun để câu hỏi hiển thị ngay phía trên ô nhập
+        st.session_state.messages.append({"role": "user", "content": user_input, "ts": datetime.utcnow().isoformat()})
+        st.session_state.last_user_text = user_input
+        st.session_state.awaiting_response = True
+        safe_rerun()
+
+# ---------------- Admin tab (giữ nguyên tính năng) ----------------
 with tab_admin:
     st.header("🛠 Khu vực Quản trị")
     pwd = st.text_input("Nhập mật khẩu quản trị", type="password")
@@ -182,12 +223,13 @@ with tab_admin:
     st.success("Đăng nhập quản trị thành công ✅")
 
     st.subheader("✅ Kiểm tra tình trạng Backend")
-    colA, colB = st.columns([1,1])
+    colA, colB = st.columns([1, 1])
     with colA:
         if st.button("Ping /health"):
             result = get_json("/health")
             st.write(result if result else "Không gọi được `/health`.")
-    with colB: st.write(f"**BACKEND_URL:** `{BACKEND_URL}`")
+    with colB:
+        st.write(f"**BACKEND_URL:** `{BACKEND_URL}`")
 
     st.divider()
     st.subheader("🗂 Lịch sử hội thoại")
@@ -227,29 +269,34 @@ with tab_admin:
     def _load_questions_series() -> Optional[pd.Series]:
         data = get_json("/history")
         df = pd.DataFrame(data) if isinstance(data, list) and data else get_csv_as_df("/chat_history.csv")
-        if df is None or df.empty: return None
-        for col in ["question","user_input","prompt","text","content"]:
+        if df is None or df.empty:
+            return None
+        for col in ["question", "user_input", "prompt", "text", "content"]:
             if col in df.columns:
                 s = df[col].dropna().astype(str)
                 if "role" in df.columns:
-                    try: s = df.loc[df["role"].astype(str).str.lower().eq("user"), col].dropna().astype(str)
-                    except: pass
+                    try:
+                        s = df.loc[df["role"].astype(str).str.lower().eq("user"), col].dropna().astype(str)
+                    except Exception:
+                        pass
                 return s if not s.empty else None
-        if {"role","content"}.issubset(df.columns):
+        if {"role", "content"}.issubset(df.columns):
             s = df.loc[df["role"].astype(str).str.lower().eq("user"), "content"].dropna().astype(str)
             return s if not s.empty else None
         return None
+
     s = _load_questions_series()
     if s is None or s.empty:
         st.info("Chưa có dữ liệu câu hỏi (cần `/history` JSON hoặc `/chat_history.csv`).")
     else:
-        s_norm = s.astype(str).str.strip().str.lower().str.replace(r"\s+"," ", regex=True)
+        s_norm = s.astype(str).str.strip().str.lower().str.replace(r"\s+", " ", regex=True)
         counts = s_norm.value_counts().head(10)
         rep = {}
         for t in s:
-            k=" ".join(str(t).strip().lower().split())
-            if k not in rep: rep[k]=str(t).strip()
-        df_top = pd.DataFrame({"Câu hỏi":[rep.get(k,k) for k in counts.index], "Số lần":counts.values})
+            k = " ".join(str(t).strip().lower().split())
+            if k not in rep:
+                rep[k] = str(t).strip()
+        df_top = pd.DataFrame({"Câu hỏi": [rep.get(k, k) for k in counts.index], "Số lần": counts.values})
         st.dataframe(df_top, use_container_width=True)
         st.bar_chart(df_top.set_index("Câu hỏi")["Số lần"])
 
@@ -259,9 +306,14 @@ with tab_admin:
     up = st.file_uploader("Chọn file MC_chatbot.csv", type=["csv"])
     if up and st.button("Gửi lên backend (/upload_mc_data)"):
         try:
-            r = requests.post(_join("/upload_mc_data"),
-                              files={"file": ("MC_chatbot.csv", up.getvalue(), "text/csv")},
-                              timeout=DEFAULT_TIMEOUT)
-            st.success("Đã gửi file lên backend.") if r.status_code==200 else st.warning(f"Backend trả {r.status_code}: {r.text}")
+            r = requests.post(
+                _join("/upload_mc_data"),
+                files={"file": ("MC_chatbot.csv", up.getvalue(), "text/csv")},
+                timeout=DEFAULT_TIMEOUT,
+            )
+            if r.status_code == 200:
+                st.success("Đã gửi file lên backend.")
+            else:
+                st.warning(f"Backend trả {r.status_code}: {r.text}")
         except requests.RequestException as e:
             st.error(f"Lỗi gửi file: {e}")
