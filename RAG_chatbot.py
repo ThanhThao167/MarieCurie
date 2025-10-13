@@ -201,8 +201,8 @@ async def chat_handler(payload: ChatPayload, request: Request):
         save_chat(session_id, "assistant", reply)
         return {"response": reply, "source": "real_time", "similarity": round(float(similarity), 2)}
 
-    # Nếu similarity đủ cao, dùng câu trả lời KB
-    if similarity >= 0.85 and context_chunks:
+    # GIẢM NGƯỠNG từ 0.85 xuống 0.70 để tận dụng KB nhiều hơn
+    if similarity >= 0.70 and context_chunks:
         top_answer = context_chunks[0].split("A:", 1)[-1].strip()
         if user_lang == "en":
             try:
@@ -212,14 +212,31 @@ async def chat_handler(payload: ChatPayload, request: Request):
         save_chat(session_id, "assistant", top_answer)
         return {"response": top_answer, "source": "knowledge_base", "similarity": round(float(similarity), 2)}
 
-    # Fallback GPT với thông báo
+    # Fallback GPT - KHÔNG CHO GPT TỰ THÊM DISCLAIMER
     current_date_info = get_date_info(0)
-    prompt = (
-        f"{current_date_info}\n\n"
-        "Bạn là trợ lý AI thân thiện, chính xác. Trả lời bằng cùng ngôn ngữ với người dùng "
-        "(Anh/Việt). Nếu có ngữ cảnh nội bộ, ưu tiên dùng.\n\n"
-        + ("\n".join(context_chunks) if context_chunks else "")
-    )
+    
+    # NẾU có context (similarity thấp hơn 0.70 nhưng > 0), vẫn đưa vào để GPT tham khảo
+    if similarity > 0.3 and context_chunks:
+        prompt = (
+            f"{current_date_info}\n\n"
+            "Bạn là trợ lý AI tuyển sinh THPT Marie Curie, thân thiện và chính xác.\n"
+            "Dưới đây là một số thông tin có thể liên quan từ cơ sở dữ liệu:\n\n"
+            + "\n".join(context_chunks) + "\n\n"
+            "Hãy dựa vào thông tin trên (nếu phù hợp) để trả lời câu hỏi của người dùng. "
+            "Trả lời bằng cùng ngôn ngữ với người dùng (Anh/Việt). "
+            "QUAN TRỌNG: Không thêm bất kỳ lời nói đầu nào như 'Câu hỏi không có trong dữ liệu' hay 'Đây là câu trả lời từ OpenAI'. "
+            "Hãy trả lời trực tiếp và tự nhiên như thể bạn biết thông tin đó."
+        )
+    else:
+        # Không có context phù hợp
+        prompt = (
+            f"{current_date_info}\n\n"
+            "Bạn là trợ lý AI tuyển sinh THPT Marie Curie, thân thiện và chính xác. "
+            "Trả lời bằng cùng ngôn ngữ với người dùng (Anh/Việt). "
+            "QUAN TRỌNG: Không thêm bất kỳ lời nói đầu nào như 'Câu hỏi không có trong dữ liệu' hay 'Đây là câu trả lời từ OpenAI'. "
+            "Hãy trả lời trực tiếp và tự nhiên."
+        )
+    
     messages = [{"role": "system", "content": prompt}] + payload.messages[-3:]
 
     try:
@@ -227,21 +244,12 @@ async def chat_handler(payload: ChatPayload, request: Request):
             raise RuntimeError("OPENAI_API_KEY not set")
         completion = client.chat.completions.create(model="gpt-4o-mini", messages=messages)
         gpt_reply = completion.choices[0].message.content
-        
-        # Thêm thông báo trước câu trả lời GPT
-        if user_lang == "vi":
-            notice = "Câu hỏi của bạn hiện không có trong dữ liệu của tôi, sau đây là câu trả lời từ OpenAI:\n\n"
-        else:
-            notice = "Your question is not currently in my database. Here is the answer from OpenAI:\n\n"
-        
-        final_reply = notice + gpt_reply
-        
     except Exception as e:
         logger.error(f"❌ GPT error: {e}")
-        final_reply = "Xin lỗi, hệ thống đang gặp sự cố khi tạo câu trả lời." if user_lang == "vi" else "Sorry, the system is experiencing an issue generating the response."
+        gpt_reply = "Xin lỗi, hệ thống đang gặp sự cố khi tạo câu trả lời." if user_lang == "vi" else "Sorry, the system is experiencing an issue generating the response."
 
-    save_chat(session_id, "assistant", final_reply)
-    return {"response": final_reply, "source": "rag_gpt", "similarity": round(float(similarity), 2)}
+    save_chat(session_id, "assistant", gpt_reply)
+    return {"response": gpt_reply, "source": "rag_gpt", "similarity": round(float(similarity), 2)}
 
 # -------------------------
 # 8) Feedback
